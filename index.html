@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Financeiro DPR</title>
+<!-- ============================================================================
+     FINANCEIRO DPR: o backoffice que substitui a planilha de controle.
+     Uma pagina so. O que a equipe preenche aqui vai direto para as tabelas
+     unidades e parcelas (as mesmas que a Central do Cliente le), com o login
+     do Supabase e as travas do banco (sql/001_financeiro.sql).
+     Mais um campo que a planilha nao tinha: o boleto do mes, por parcela.
+     ============================================================================ -->
+<link rel="icon" href="logo-dpr-transparente.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --accent: #e10600;
+    --accent-claro: #ff3b2f;
+    --primary: #15161a;
+    --text: #2a2c31;
+    --text-light: #6f737b;
+    --border: #e6e2db;
+    --gray-50: #f3f0ea;
+    --lighter: #f4f1ec;
+    --white: #fff;
+    --verde: #2e7d32;
+    --display: 'Archivo', 'Inter', sans-serif;
+    --rotulo: 'Inter', sans-serif;
+    --sombra: 0 1px 2px rgba(18, 19, 22, .04), 0 10px 30px rgba(18, 19, 22, .05);
+    --sombra-alta: 0 24px 60px rgba(18, 19, 22, .14);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: 'Inter', sans-serif; font-size: 14px; color: var(--text); background: var(--lighter); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+  [hidden] { display: none !important; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  h1, h2, h3 { font-family: var(--display); color: var(--primary); letter-spacing: -.02em; margin: 0; }
+  .eyebrow { font-family: var(--rotulo); font-size: 10.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+  .rotulo { font-family: var(--rotulo); font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-light); }
+
+  /* --- botoes --- */
+  .bt { appearance: none; border: 1.5px solid var(--primary); background: var(--white); color: var(--primary); border-radius: 999px; min-height: 42px; padding: 0 20px; font-weight: 700; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: background .15s ease, color .15s ease, border-color .15s ease; white-space: nowrap; }
+  .bt:hover { background: var(--primary); color: var(--white); }
+  .bt.cheio { background: var(--accent); border-color: var(--accent); color: var(--white); box-shadow: 0 10px 24px rgba(225, 6, 0, .22); }
+  .bt.cheio:hover { background: #c40500; border-color: #c40500; }
+  .bt.leve { border-color: var(--border); font-weight: 600; }
+  .bt.leve:hover { background: var(--gray-50); color: var(--primary); }
+  .bt.perigo { border-color: rgba(225, 6, 0, .35); color: var(--accent); }
+  .bt.perigo:hover { background: var(--accent); border-color: var(--accent); color: var(--white); }
+  .bt.mini { min-height: 32px; padding: 0 12px; font-size: 12.5px; }
+  .bt:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .bt svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* --- campos --- */
+  .campo { display: flex; flex-direction: column; gap: 6px; }
+  .campo label { font-family: var(--rotulo); font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-light); }
+  .campo input, .campo select, .campo textarea { width: 100%; min-height: 44px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--white); outline: none; transition: border-color .15s ease, box-shadow .15s ease; }
+  .campo input:focus, .campo select:focus, .campo textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(225, 6, 0, .1); }
+  .campo input.dinheiro, .campo input.numero { text-align: right; font-variant-numeric: tabular-nums; }
+  .campo .dica { font-size: 12px; color: var(--text-light); }
+  .erro { color: var(--accent); font-size: 13px; min-height: 18px; }
+
+  /* --- entrada --- */
+  .entrada { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); background: #0f1013; }
+  .entrada-lado { position: relative; padding: 64px 7vw; color: var(--white); display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+  .entrada-lado::before { content: ''; position: absolute; inset: 0; background: radial-gradient(640px 400px at 90% 100%, rgba(225, 6, 0, .34), transparent 70%); }
+  .entrada-lado > * { position: relative; }
+  .entrada-titulo { font-family: var(--display); font-size: clamp(42px, 5vw, 72px); font-weight: 900; line-height: 1; letter-spacing: -.035em; margin: 18px 0 20px; color: var(--white); }
+  .entrada-texto { font-size: 16px; color: rgba(255, 255, 255, .72); max-width: 42ch; line-height: 1.6; }
+  .entrada-barras { display: flex; gap: 8px; margin-top: 36px; }
+  .entrada-barras i { display: block; width: 16px; height: 54px; background: var(--accent); transform: skewX(-14deg); border-radius: 2px; }
+  .entrada-barras i:nth-child(2) { height: 72px; margin-top: -18px; }
+  .entrada-barras i:nth-child(3) { height: 40px; margin-top: 14px; }
+  .entrada-cartao { align-self: center; justify-self: center; width: 100%; max-width: 420px; margin: 40px 7vw 40px 0; background: var(--white); border-radius: 24px; padding: 36px 34px 30px; box-shadow: 0 40px 100px rgba(0, 0, 0, .45); }
+  .entrada-logo { display: block; max-width: 160px; margin: 0 auto 8px; }
+  .entrada-sub { text-align: center; margin: 0 0 24px; font-size: 12.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--text-light); }
+  .entrada-cartao form { display: flex; flex-direction: column; gap: 16px; }
+  .entrada-cartao .bt.cheio { justify-content: center; min-height: 50px; border-radius: 14px; width: 100%; }
+  .link { appearance: none; border: 0; background: none; color: var(--text-light); font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; padding: 0; }
+  .link:hover { color: var(--accent); }
+  .entrada-links { display: flex; justify-content: center; gap: 18px; }
+  .sem-acesso { max-width: 520px; margin: 0 auto; }
+  .sem-acesso code { background: var(--gray-50); padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+
+  /* --- o app --- */
+  .topo { position: sticky; top: 0; z-index: 50; background: rgba(244, 241, 236, .9); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+  .topo-dentro { max-width: 1320px; margin: 0 auto; padding: 12px 28px; display: flex; align-items: center; gap: 20px; }
+  .topo-logo { height: 34px; }
+  .topo-nome { font-family: var(--display); font-weight: 800; font-size: 15px; color: var(--primary); letter-spacing: -.01em; }
+  .topo-nome span { display: block; font-family: var(--rotulo); font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--text-light); }
+  .topo-nav { display: flex; gap: 4px; margin-left: 14px; }
+  .topo-nav button { appearance: none; border: 0; background: none; padding: 10px 14px; border-radius: 999px; font-weight: 600; color: var(--text-light); cursor: pointer; }
+  .topo-nav button.ativo { background: var(--primary); color: var(--white); }
+  .topo-usuario { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .topo-usuario strong { font-size: 13px; color: var(--primary); }
+  .topo-usuario span { display: block; font-size: 11px; color: var(--text-light); }
+  .conteudo { max-width: 1320px; margin: 0 auto; padding: 32px 28px 80px; }
+  .cabeca { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 24px; flex-wrap: wrap; }
+  .cabeca h1 { font-size: 34px; font-weight: 900; }
+  .cabeca p { margin: 6px 0 0; color: var(--text-light); }
+  .acoes { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* --- resumo --- */
+  .resumo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+  .resumo-item { background: var(--white); border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px; box-shadow: var(--sombra); position: relative; overflow: hidden; }
+  .resumo-item::after { content: ''; position: absolute; left: 20px; bottom: 0; width: 36px; height: 3px; background: var(--accent); border-radius: 3px 3px 0 0; }
+  .resumo-item strong { display: block; font-family: var(--display); font-size: 28px; font-weight: 900; letter-spacing: -.03em; color: var(--primary); margin-top: 6px; }
+  .resumo-item.escuro { background: linear-gradient(118deg, #121316 0%, #1d1f24 58%, #272a31 100%); color: var(--white); border: 0; }
+  .resumo-item.escuro strong, .resumo-item.escuro .rotulo { color: var(--white); }
+  .resumo-item.escuro .rotulo { color: rgba(255, 255, 255, .6); }
+
+  /* --- filtros --- */
+  .filtros { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 18px; flex-wrap: wrap; }
+  .filtros .campo { min-width: 200px; }
+  .filtros .campo.busca { flex: 1; min-width: 260px; }
+
+  /* --- tabela de casas --- */
+  .cartao { background: var(--white); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--sombra); overflow: hidden; }
+  .tabela { width: 100%; border-collapse: collapse; }
+  .tabela th { text-align: left; font-family: var(--rotulo); font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-light); padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--white); white-space: nowrap; }
+  .tabela td { padding: 13px 16px; border-bottom: 1px solid var(--gray-50); vertical-align: middle; }
+  .tabela tr:last-child td { border-bottom: 0; }
+  .tabela td.num, .tabela th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .linha-casa { cursor: pointer; transition: background .15s ease; }
+  .linha-casa:hover { background: var(--gray-50); }
+  .linha-casa strong { font-family: var(--display); font-weight: 800; color: var(--primary); }
+  .grupo-emp td { background: var(--lighter); font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: .02em; color: var(--primary); padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .selo { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: var(--gray-50); color: var(--text-light); white-space: nowrap; }
+  .selo::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .selo.ativo { background: rgba(46, 125, 50, .12); color: var(--verde); }
+  .selo.aguardando_assinatura { background: rgba(230, 150, 0, .14); color: #9a6400; }
+  .selo.distrato_aguardando, .selo.distrato_realizado { background: rgba(225, 6, 0, .1); color: var(--accent); }
+  .selo.financeiro { background: var(--primary); color: var(--white); }
+  .selo.atraso { background: rgba(225, 6, 0, .1); color: var(--accent); }
+  .vazio { padding: 40px 20px; text-align: center; color: var(--text-light); }
+
+  /* --- a ficha --- */
+  .ficha-grade { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 18px; }
+  .ficha-grade .larga { grid-column: span 2; }
+  .secao { background: var(--white); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--sombra); padding: 26px 28px; margin-bottom: 22px; }
+  .secao-titulo { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+  .secao-titulo h2 { font-size: 20px; font-weight: 800; padding-left: 14px; border-left: 3px solid var(--accent); }
+  .secao-titulo .conta { font-size: 12.5px; color: var(--text-light); margin-left: 8px; font-family: var(--rotulo); font-weight: 500; }
+  .secao-titulo .acoes .bt { min-height: 36px; padding: 0 14px; font-size: 13px; }
+
+  /* --- a tabela de parcelas (as colunas da planilha) --- */
+  .parcelas-rolagem { overflow-x: auto; margin: 0 -28px; padding: 0 28px; }
+  .parcelas { border-collapse: separate; border-spacing: 0; min-width: 1560px; width: 100%; }
+  .parcelas th { position: sticky; top: 0; z-index: 2; text-align: left; font-family: var(--rotulo); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--text-light); padding: 10px 8px; border-bottom: 1px solid var(--border); background: var(--white); white-space: nowrap; }
+  .parcelas th.num { text-align: right; }
+  .parcelas td { padding: 4px 4px; border-bottom: 1px solid var(--gray-50); vertical-align: middle; }
+  .parcelas td.ordem { font-family: var(--display); font-weight: 800; color: var(--text-light); text-align: center; width: 40px; font-size: 12.5px; }
+  .parcelas input[type="text"], .parcelas input[type="date"] { width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; outline: none; font-size: 13px; }
+  .parcelas input[type="text"]:hover, .parcelas input[type="date"]:hover { border-color: var(--border); background: var(--white); }
+  .parcelas input[type="text"]:focus, .parcelas input[type="date"]:focus { border-color: var(--accent); background: var(--white); box-shadow: 0 0 0 3px rgba(225, 6, 0, .1); }
+  .parcelas input.dinheiro, .parcelas input.numero { text-align: right; font-variant-numeric: tabular-nums; }
+  .parcelas td.c-data { width: 128px; }
+  .parcelas td.c-tipo { width: 120px; }
+  .parcelas td.c-dinheiro { width: 118px; }
+  .parcelas td.c-pct { width: 78px; }
+  .parcelas td.c-pago { width: 64px; text-align: center; }
+  .parcelas td.c-boleto { width: 164px; white-space: nowrap; }
+  .parcelas td.c-acoes { width: 44px; text-align: center; }
+  .parcelas tr.paga td { background: rgba(46, 125, 50, .035); }
+  .parcelas tr.atrasada td.c-data input { color: var(--accent); font-weight: 700; }
+  .pago-caixa { appearance: none; width: 20px; height: 20px; border: 1.5px solid var(--border); border-radius: 6px; background: var(--white); cursor: pointer; position: relative; vertical-align: middle; }
+  .pago-caixa:checked { background: var(--verde); border-color: var(--verde); }
+  .pago-caixa:checked::after { content: ''; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px; border: solid var(--white); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .boleto-tem { display: inline-flex; align-items: center; gap: 6px; }
+  .boleto-tem .bt.mini { min-height: 28px; padding: 0 10px; font-size: 12px; }
+  .anexar { position: relative; display: inline-flex; }
+  .anexar input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .anexar .bt.mini { min-height: 28px; padding: 0 10px; font-size: 12px; border-style: dashed; }
+  .anexar.desligado .bt.mini { opacity: .45; }
+  .anexar.desligado input { pointer-events: none; }
+  .bt-icone { appearance: none; border: 0; background: none; width: 32px; height: 32px; border-radius: 50%; color: var(--text-light); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .bt-icone:hover { background: rgba(225, 6, 0, .1); color: var(--accent); }
+  .bt-icone svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .parcelas-pe { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 16px; flex-wrap: wrap; }
+  .parcelas-totais { display: flex; gap: 22px; font-size: 13px; color: var(--text-light); }
+  .parcelas-totais strong { color: var(--primary); font-family: var(--display); font-weight: 800; }
+  .barra-salvar { position: sticky; bottom: 0; z-index: 40; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 20px; margin-top: 8px; background: rgba(21, 22, 26, .96); color: var(--white); border-radius: 18px; box-shadow: var(--sombra-alta); }
+  .barra-salvar .estado { font-size: 13px; color: rgba(255, 255, 255, .7); }
+  .barra-salvar .estado strong { color: var(--white); }
+  .barra-salvar .bt { border-color: rgba(255, 255, 255, .3); color: var(--white); background: transparent; }
+  .barra-salvar .bt:hover { background: var(--white); color: var(--primary); }
+  .barra-salvar .bt.cheio { border-color: var(--accent); background: var(--accent); }
+  .barra-salvar .bt.cheio:hover { background: #c40500; color: var(--white); }
+
+  /* --- modais --- */
+  .modal { position: fixed; inset: 0; z-index: 100; background: rgba(15, 16, 19, .55); display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modal-caixa { background: var(--white); border-radius: 22px; width: 100%; max-width: 640px; padding: 28px 30px; box-shadow: var(--sombra-alta); max-height: 90vh; overflow: auto; }
+  .modal-caixa h2 { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+  .modal-caixa p { margin: 0 0 18px; color: var(--text-light); }
+  .modal-caixa textarea { min-height: 200px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre; }
+  .modal-pe { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  .opcoes { display: flex; gap: 18px; margin: 14px 0 0; font-size: 13.5px; }
+  .opcoes label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  .gerar-grade { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  /* --- aviso no pe --- */
+  .aviso { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); z-index: 200; background: var(--primary); color: var(--white); padding: 12px 20px; border-radius: 999px; font-weight: 600; font-size: 13.5px; opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease; box-shadow: var(--sombra-alta); max-width: calc(100vw - 40px); }
+  .aviso.visivel { opacity: 1; transform: translate(-50%, 0); }
+  .aviso[data-tipo="erro"] { background: var(--accent); }
+  .aviso[data-tipo="ok"] { background: var(--verde); }
+
+  @media (max-width: 900px) {
+    .entrada { grid-template-columns: 1fr; }
+    .entrada-lado { padding: 48px 24px 24px; min-height: 0; }
+    .entrada-barras { display: none; }
+    .entrada-cartao { margin: 0 16px 24px; max-width: none; justify-self: stretch; padding: 26px 22px 22px; }
+    .topo-dentro { padding: 10px 16px; gap: 12px; }
+    .topo-nome { display: none; }
+    .topo-nav { margin-left: 0; }
+    .topo-usuario span { display: none; }
+    .conteudo { padding: 20px 16px 60px; }
+    .cabeca h1 { font-size: 28px; }
+    .resumo { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .resumo-item strong { font-size: 22px; }
+    .filtros .campo, .filtros .campo.busca { min-width: 0; flex: 1 1 100%; }
+    .cartao { overflow-x: auto; }
+    .tabela { min-width: 760px; }
+    .ficha-grade { grid-template-columns: 1fr 1fr; }
+    .ficha-grade .larga { grid-column: span 2; }
+    .secao { padding: 20px 18px; }
+    .parcelas-rolagem { margin: 0 -18px; padding: 0 18px; }
+    .barra-salvar { border-radius: 14px; flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<div id="aviso" class="aviso" role="status" aria-live="polite"></div>
+
+<!-- carregando: nasce visivel, sai quando a sessao e lida -->
+<div id="telaCarregando" class="entrada"><div class="entrada-lado"><span class="eyebrow">Financeiro DPR</span><p class="entrada-texto">Abrindo...</p></div></div>
+
+<!-- entrar -->
+<div id="telaEntrar" class="entrada" hidden>
+  <aside class="entrada-lado" aria-hidden="true">
+    <span class="eyebrow">Financeiro DPR</span>
+    <p class="entrada-titulo">O carnê<br>de cada casa,<br>num lugar só.</p>
+    <p class="entrada-texto">O que era a planilha, agora com login: contrato, parcelas, correção e o boleto do mês. O cliente vê na Central na hora.</p>
+    <div class="entrada-barras"><i></i><i></i><i></i></div>
+  </aside>
+  <div class="entrada-cartao">
+    <img class="entrada-logo" src="logo-dpr-transparente.png" alt="DPR Construtora &amp; Incorporadora">
+    <p class="entrada-sub">Financeiro</p>
+    <form id="formEntrar" novalidate>
+      <div class="campo"><label for="entrarEmail">E-mail</label><input type="email" id="entrarEmail" autocomplete="email" required></div>
+      <div class="campo" id="campoSenha"><label for="entrarSenha">Senha</label><input type="password" id="entrarSenha" autocomplete="current-password"></div>
+      <div class="erro" id="entrarErro"></div>
+      <button type="submit" class="bt cheio" id="entrarBotao">Entrar</button>
+      <div class="entrada-links">
+        <button type="button" class="link" id="entrarEsqueci">Esqueci minha senha</button>
+        <button type="button" class="link" id="entrarVoltar" hidden>Voltar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- sem acesso -->
+<div id="telaSemAcesso" class="entrada" hidden>
+  <aside class="entrada-lado" aria-hidden="true">
+    <span class="eyebrow">Financeiro DPR</span>
+    <p class="entrada-titulo">Quase lá.</p>
+    <p class="entrada-texto">Este login existe, mas ainda não foi liberado para o financeiro.</p>
+  </aside>
+  <div class="entrada-cartao sem-acesso">
+    <img class="entrada-logo" src="logo-dpr-transparente.png" alt="DPR Construtora &amp; Incorporadora">
+    <p class="entrada-sub">Sem acesso</p>
+    <p>Para liberar, alguém da DPR escreve <code>liberado</code> na linha de <strong id="semAcessoEmail"></strong> na tabela <code>fin_liberacoes</code> do Supabase. Depois é só entrar de novo.</p>
+    <div class="modal-pe" style="justify-content:center"><button type="button" class="bt" id="semAcessoSair">Sair</button></div>
+  </div>
+</div>
+
+<!-- o app -->
+<div id="app" hidden>
+  <header class="topo">
+    <div class="topo-dentro">
+      <img class="topo-logo" src="logo-dpr-transparente.png" alt="DPR">
+      <div class="topo-nome">Financeiro<span>DPR Construtora</span></div>
+      <nav class="topo-nav" aria-label="Seções">
+        <button type="button" data-rota="casas" id="navCasas" class="ativo">Casas</button>
+      </nav>
+      <div class="topo-usuario">
+        <div><strong id="usuarioNome"></strong><span id="usuarioEmail"></span></div>
+        <button type="button" class="bt leve mini" id="sair">Sair</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="conteudo">
+    <!-- CASAS -->
+    <section id="paginaCasas">
+      <div class="cabeca">
+        <div><span class="eyebrow">Controle financeiro</span><h1>Casas</h1><p>Uma linha por casa, como as abas da planilha. Toque numa casa para abrir a ficha.</p></div>
+        <div class="acoes"><button type="button" class="bt cheio" id="btNovaCasa"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nova casa</button></div>
+      </div>
+      <div class="resumo">
+        <div class="resumo-item escuro"><span class="rotulo">Casas</span><strong id="resCasas">0</strong></div>
+        <div class="resumo-item"><span class="rotulo">Contratos ativos</span><strong id="resAtivos">0</strong></div>
+        <div class="resumo-item"><span class="rotulo">Parcelas em atraso</span><strong id="resAtraso">0</strong></div>
+        <div class="resumo-item"><span class="rotulo">Já no financeiro</span><strong id="resFinanceiro">0</strong></div>
+      </div>
+      <div class="filtros">
+        <div class="campo busca"><label for="buscaCasas">Buscar</label><input type="search" id="buscaCasas" placeholder="Comprador, unidade ou empreendimento" autocomplete="off"></div>
+        <div class="campo"><label for="filtroEmp">Empreendimento</label><select id="filtroEmp"><option value="">Todos</option></select></div>
+        <div class="campo"><label for="filtroStatus">Situação</label><select id="filtroStatus"><option value="">Todas</option><option value="ativo">Ativo</option><option value="aguardando_assinatura">Aguardando assinatura</option><option value="distrato_aguardando">Distrato (aguardando)</option><option value="distrato_realizado">Distrato realizado</option></select></div>
+      </div>
+      <div class="cartao">
+        <table class="tabela" id="tabelaCasas">
+          <thead><tr><th>Unidade</th><th>Comprador</th><th>Situação</th><th class="num">Valor da venda</th><th class="num">Saldo devedor</th><th class="num">Parcelas pagas</th><th>Próximo vencimento</th><th>Onde é preenchida</th></tr></thead>
+          <tbody id="listaCasas"></tbody>
+        </table>
+        <div class="vazio" id="casasVazio" hidden>Nenhuma casa ainda. Toque em "Nova casa" ou cole a tabela da planilha.</div>
+      </div>
+    </section>
+
+    <!-- A FICHA DA CASA -->
+    <section id="paginaCasa" hidden>
+      <div class="cabeca">
+        <div><button type="button" class="link" id="voltarLista">&#8249; Todas as casas</button><h1 id="fichaTitulo">Nova casa</h1><p id="fichaSub">O cabeçalho da aba e o carnê de parcelas.</p></div>
+        <div class="acoes"><button type="button" class="bt perigo" id="btExcluir" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>Excluir casa</button></div>
+      </div>
+
+      <form id="formCasa" novalidate>
+      <div class="secao">
+        <div class="secao-titulo"><h2>A casa</h2><span class="conta">como no cabeçalho da aba</span></div>
+        <div class="ficha-grade">
+          <div class="campo larga"><label for="fEmpreendimento">Empreendimento</label><input type="text" id="fEmpreendimento" list="listaEmps" placeholder="VILLAGIO CAUCAIA II" autocomplete="off" required><datalist id="listaEmps"></datalist><span class="dica">Igual ao nome usado na Central e no painel de obras.</span></div>
+          <div class="campo"><label for="fUnidade">Unidade</label><input type="text" id="fUnidade" placeholder="CASA 03" autocomplete="off" required></div>
+          <div class="campo"><label for="fStatus">Situação do contrato</label><select id="fStatus"><option value="ativo">Ativo</option><option value="aguardando_assinatura">Aguardando assinatura</option><option value="distrato_aguardando">Distrato (aguardando)</option><option value="distrato_realizado">Distrato realizado</option></select></div>
+          <div class="campo larga"><label for="fComprador">Comprador</label><input type="text" id="fComprador" placeholder="Nome completo, como no contrato" autocomplete="off" required><span class="dica">É por este nome que o cliente acha a casa ao se cadastrar na Central.</span></div>
+          <div class="campo"><label for="fAssinatura">Data de assinatura</label><input type="date" id="fAssinatura"></div>
+          <div class="campo"><label for="fValorVenda">Valor da venda</label><input type="text" id="fValorVenda" class="dinheiro" inputmode="decimal" placeholder="0,00"></div>
+          <div class="campo"><label for="fFinanciamento">Financiamento proposto</label><input type="text" id="fFinanciamento" class="dinheiro" inputmode="decimal" placeholder="0,00"></div>
+          <div class="campo"><label for="fFgts">FGTS proposto</label><input type="text" id="fFgts" class="dinheiro" inputmode="decimal" placeholder="0,00"></div>
+          <div class="campo larga"><label for="fSaldo">Saldo devedor atualizado</label><input type="text" id="fSaldo" class="dinheiro" inputmode="decimal" placeholder="0,00"><span class="dica">O número que o cliente mais olha: quanto ainda falta pagar (o do RESUMO da planilha).</span></div>
+        </div>
+      </div>
+
+      <div class="secao">
+        <div class="secao-titulo">
+          <h2>Parcelas <span class="conta" id="contaParcelas">0 parcelas</span></h2>
+          <div class="acoes">
+            <button type="button" class="bt leve" id="btColar"><svg viewBox="0 0 24 24"><path d="M9 4h6v3H9zM7 6H5v14h14V6h-2"/></svg>Colar da planilha</button>
+            <button type="button" class="bt leve" id="btGerar"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Gerar parcelas</button>
+            <button type="button" class="bt" id="btAddParcela"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Adicionar parcela</button>
+          </div>
+        </div>
+        <div class="parcelas-rolagem">
+          <table class="parcelas" id="tabelaParcelas">
+            <thead><tr>
+              <th>#</th><th>Data</th><th>Tipo de parcela</th><th class="num">Comissão</th><th class="num">Saldo da construtora</th><th class="num">INCC %</th><th class="num">INCC mês</th><th class="num">Saldo corrigido</th><th class="num">Parcela construtora</th><th class="num">IGPM parcela</th><th class="num">Parcela corrigida</th><th class="num">Amortização</th><th>Pago</th><th class="num">Saldo devedor atualizado</th><th>Boleto do mês</th><th></th>
+            </tr></thead>
+            <tbody id="linhasParcelas"></tbody>
+          </table>
+        </div>
+        <div class="parcelas-pe">
+          <div class="parcelas-totais"><span>Pagas <strong id="totPagas">0</strong></span><span>Em aberto <strong id="totAbertas">0</strong></span><span>Em atraso <strong id="totAtraso">0</strong></span><span>Soma das corrigidas <strong id="totCorrigidas">R$ 0,00</strong></span></div>
+          <span class="dica" id="dicaBoleto">Salve a casa para poder anexar boletos.</span>
+        </div>
+      </div>
+
+      <div class="barra-salvar">
+        <div class="estado" id="estadoSalvar">Nada mudou.</div>
+        <div class="acoes">
+          <button type="button" class="bt" id="btDescartar">Descartar</button>
+          <button type="submit" class="bt cheio" id="btSalvar">Salvar casa</button>
+        </div>
+      </div>
+      </form>
+      <datalist id="listaTipos"><option value="ATO"><option value="MENSAIS"><option value="INTERMEDIÁRIA"><option value="CHAVES"><option value="FINANCIAMENTO"><option value="FGTS"></datalist>
+    </section>
+  </main>
+</div>
+
+<!-- colar da planilha -->
+<div class="modal" id="modalColar" hidden>
+  <div class="modal-caixa">
+    <h2>Colar da planilha</h2>
+    <p>Na planilha, selecione a tabela de parcelas <strong>com a linha de cabeçalho</strong> (DATA, TIPO DE PARCELA, ...), copie e cole aqui. As colunas são achadas pelo nome, como no sincronizador.</p>
+    <div class="campo"><textarea id="colarTexto" spellcheck="false" placeholder="DATA&#9;TIPO DE PARCELA&#9;COMISSÃO&#9;..."></textarea></div>
+    <div class="opcoes">
+      <label><input type="radio" name="colarModo" value="substituir" checked> Substituir as parcelas atuais</label>
+      <label><input type="radio" name="colarModo" value="acrescentar"> Acrescentar ao fim</label>
+    </div>
+    <div class="erro" id="colarErro"></div>
+    <div class="modal-pe"><button type="button" class="bt" id="btColarFechar">Cancelar</button><button type="button" class="bt cheio" id="btColarOk">Usar estas parcelas</button></div>
+  </div>
+</div>
+
+<!-- gerar parcelas -->
+<div class="modal" id="modalGerar" hidden>
+  <div class="modal-caixa">
+    <h2>Gerar parcelas</h2>
+    <p>Cria várias de uma vez, uma por mês, para você só ajustar o que muda.</p>
+    <div class="gerar-grade">
+      <div class="campo"><label for="gerQtd">Quantas</label><input type="text" id="gerQtd" class="numero" inputmode="numeric" value="12"></div>
+      <div class="campo"><label for="gerData">Primeiro vencimento</label><input type="date" id="gerData"></div>
+      <div class="campo"><label for="gerTipo">Tipo de parcela</label><input type="text" id="gerTipo" list="listaTipos" value="MENSAIS"></div>
+      <div class="campo"><label for="gerValor">Parcela construtora</label><input type="text" id="gerValor" class="dinheiro" inputmode="decimal" placeholder="0,00"></div>
+    </div>
+    <div class="erro" id="gerarErro"></div>
+    <div class="modal-pe"><button type="button" class="bt" id="btGerarFechar">Cancelar</button><button type="button" class="bt cheio" id="btGerarOk">Gerar</button></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---- Supabase: o mesmo projeto da Central, do CRM e do painel de obras. A
+     chave e a PUBLICAVEL, feita para o navegador; o que protege os dados sao
+     as travas do banco (sql/001_financeiro.sql). ---- */
+  const SUPABASE_URL = 'https://roashkfdjgsweuftqhyx.supabase.co';
+  const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_T4u8FTh9_VvBtW7Ycxw4FQ_dHu0n5tT';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const STATUS = { ativo: 'Ativo', aguardando_assinatura: 'Aguardando assinatura', distrato_aguardando: 'Distrato (aguardando)', distrato_realizado: 'Distrato realizado' };
+  // as colunas da planilha, na ordem da tabela, e o campo do banco de cada uma
+  const CAMPOS = [
+    { c: 'comissao', t: 'dinheiro' }, { c: 'saldo_construtora', t: 'dinheiro' }, { c: 'incc_percentual', t: 'pct' },
+    { c: 'incc_valor', t: 'dinheiro' }, { c: 'saldo_corrigido', t: 'dinheiro' }, { c: 'parcela_construtora', t: 'dinheiro' },
+    { c: 'igpm_valor', t: 'dinheiro' }, { c: 'parcela_corrigida', t: 'dinheiro' }, { c: 'amortizacao', t: 'dinheiro' }
+  ];
+
+  const estado = { sessao: null, perfil: null, casas: [], resumoParcelas: {}, casaId: null, casa: null, linhas: [], mudou: false, rota: 'casas', carregando: false, modoEsqueci: false };
+
+  /* ---- aviso no pe ---- */
+  let avisoRelogio = null;
+  function avisar(texto, tipo) {
+    const el = $('aviso');
+    el.textContent = texto;
+    el.setAttribute('data-tipo', tipo || 'info');
+    el.classList.add('visivel');
+    window.clearTimeout(avisoRelogio);
+    avisoRelogio = window.setTimeout(() => el.classList.remove('visivel'), 4200);
+  }
+  function mensagemDeErro(erro) {
+    const m = (erro && erro.message) || String(erro || 'erro');
+    if (/unidades_empreendimento_unidade_key|duplicate key/i.test(m)) return 'Já existe uma casa com este empreendimento e esta unidade.';
+    if (/row-level security|permission denied|violates/i.test(m)) return 'Você não tem permissão para fazer isso. Peça a liberação no financeiro.';
+    if (/Bucket not found/i.test(m)) return 'O espaço dos boletos ainda não foi criado no Supabase (rode o sql/001_financeiro.sql).';
+    if (/Payload too large|too large|exceeded/i.test(m)) return 'O arquivo é grande demais.';
+    if (/Failed to fetch|NetworkError|network/i.test(m)) return 'Sem conexão. Tente de novo.';
+    return m;
+  }
+
+  /* ---- numeros e datas ---- */
+  // "R$ 1.234,56", "0,68%", 1234.56 -> numero ou null
+  function numero(v) {
+    if (v === null || v === undefined || v === '') return null;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    const limpo = String(v).replace(/[R$\s%]/gi, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+    if (limpo === '' || limpo === '-') return null;
+    const n = Number(limpo);
+    return Number.isFinite(n) ? n : null;
+  }
+  const fmt = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtPct = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  function dinheiro(n) { return n === null || n === undefined ? '' : fmt.format(n); }
+  function reais(n) { return n === null || n === undefined ? '—' : 'R$ ' + fmt.format(n); }
+  function pct(n) { return n === null || n === undefined ? '' : fmtPct.format(n); }
+  // 'AAAA-MM-DD' -> 'DD/MM/AAAA', sem Date (fuso)
+  function dataBR(iso) { const s = String(iso || ''); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : ''; }
+  // ISO, dd/mm/aaaa ou dd/mm/aa -> ISO ou null; a data precisa EXISTIR (30/02 nao passa)
+  function dataISO(v) {
+    if (!v) return null;
+    const s = String(v).trim();
+    let iso = null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) iso = s.slice(0, 10);
+    else {
+      const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (!br) return null;
+      const ano = br[3].length === 2 ? '20' + br[3] : br[3];
+      iso = ano + '-' + br[2].padStart(2, '0') + '-' + br[1].padStart(2, '0');
+    }
+    const t = new Date(iso + 'T00:00:00Z');
+    if (Number.isNaN(t.getTime()) || t.toISOString().slice(0, 10) !== iso) return null;
+    return iso;
+  }
+  function hojeISO() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  // soma meses a uma data ISO mantendo o dia (31 vira o ultimo dia do mes)
+  function mesesDepois(iso, n) {
+    const a = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)) - 1 + n, d = Number(iso.slice(8, 10));
+    const ano = a + Math.floor(m / 12), mes = ((m % 12) + 12) % 12;
+    const ultimo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+    return ano + '-' + String(mes + 1).padStart(2, '0') + '-' + String(Math.min(d, ultimo)).padStart(2, '0');
+  }
+  function situacaoDaParcela(p, hoje) {
+    if (p.pago) return 'paga';
+    if (p.data_vencimento && p.data_vencimento < hoje) return 'atrasada';
+    return 'aberta';
+  }
+
+  /* ---- telas ---- */
+  const TELAS = ['telaCarregando', 'telaEntrar', 'telaSemAcesso', 'app'];
+  function mostrarTela(id) { TELAS.forEach((t) => { $(t).hidden = t !== id; }); }
+
+  /* ---- a sessao e o acesso ---- */
+  // undefined = ainda nao tratei nenhuma; null = tratei "sem sessao"; id = tratei essa sessao
+  // (o supabase-js avisa a mesma sessao mais de uma vez: getSession e onAuthStateChange)
+  let sessaoTratada;
+  function aoMudarSessao(sessao) {
+    const chave = sessao && sessao.user ? sessao.user.id : null;
+    if (chave === sessaoTratada) return;
+    sessaoTratada = chave;
+    estado.sessao = sessao;
+    if (!sessao) { estado.perfil = null; $('entrarErro').textContent = ''; mostrarTela('telaEntrar'); return; }
+    sb.rpc('fin_perfil').then((r) => {
+      if (r.error) { avisar(mensagemDeErro(r.error), 'erro'); $('semAcessoEmail').textContent = sessao.user.email || ''; mostrarTela('telaSemAcesso'); return; }
+      const p = r.data || {};
+      if (!p.acesso) { $('semAcessoEmail').textContent = p.email || sessao.user.email || ''; mostrarTela('telaSemAcesso'); return; }
+      estado.perfil = p;
+      $('usuarioNome').textContent = p.nome || '';
+      $('usuarioEmail').textContent = p.email || '';
+      mostrarTela('app');
+      carregarCasas().then(() => irPara(rotaDaUrl(), true));
+    });
+  }
+  sb.auth.onAuthStateChange((evento, sessao) => {
+    if (evento === 'PASSWORD_RECOVERY') { avisar('Defina a senha nova pela Central do Cliente ou pelo painel de obras.', 'info'); }
+    aoMudarSessao(sessao);
+  });
+  sb.auth.getSession().then((r) => aoMudarSessao(r.data ? r.data.session : null));
+
+  /* ---- entrar, esqueci, sair ---- */
+  $('entrarEsqueci').addEventListener('click', () => { estado.modoEsqueci = true; $('campoSenha').hidden = true; $('entrarBotao').textContent = 'Enviar link'; $('entrarEsqueci').hidden = true; $('entrarVoltar').hidden = false; $('entrarErro').textContent = ''; });
+  $('entrarVoltar').addEventListener('click', () => { estado.modoEsqueci = false; $('campoSenha').hidden = false; $('entrarBotao').textContent = 'Entrar'; $('entrarEsqueci').hidden = false; $('entrarVoltar').hidden = true; $('entrarErro').textContent = ''; });
+  $('formEntrar').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const email = $('entrarEmail').value.trim().toLowerCase(), senha = $('entrarSenha').value, erro = $('entrarErro');
+    erro.textContent = '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { erro.textContent = 'Digite um e-mail válido.'; return; }
+    const botao = $('entrarBotao'); botao.disabled = true;
+    if (estado.modoEsqueci) {
+      sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + window.location.pathname }).then((r) => {
+        botao.disabled = false;
+        if (r.error) { erro.textContent = mensagemDeErro(r.error); return; }
+        avisar('Se esse e-mail estiver cadastrado, o link chega em instantes.', 'ok');
+        $('entrarVoltar').click();
+      });
+      return;
+    }
+    if (!senha) { erro.textContent = 'Digite a senha.'; botao.disabled = false; return; }
+    sb.auth.signInWithPassword({ email, password: senha }).then((r) => {
+      botao.disabled = false;
+      if (r.error) { erro.textContent = /Invalid login/i.test(r.error.message) ? 'E-mail ou senha errados.' : mensagemDeErro(r.error); return; }
+      $('entrarSenha').value = '';
+    });
+  });
+  function sair() {
+    if (estado.mudou && !window.confirm('Há mudanças não salvas nesta casa. Sair mesmo assim?')) return;
+    estado.perfil = null; estado.mudou = false; estado.casas = [];
+    if (window.location.hash) window.history.replaceState(null, '', window.location.pathname);
+    sessaoTratada = undefined;
+    sb.auth.signOut().then(() => aoMudarSessao(null));
+  }
+  $('sair').addEventListener('click', sair);
+  $('semAcessoSair').addEventListener('click', sair);
+
+  /* ---- rotas: #casas, #casa/<id>, #nova ---- */
+  function rotaDaUrl() { return (window.location.hash || '#casas').slice(1); }
+  function irPara(rota, semHistorico) {
+    if (!estado.perfil) return;
+    const m = rota.match(/^casa\/(\d+)$/);
+    if (rota === 'nova') abrirFicha(null);
+    else if (m) abrirFicha(Number(m[1]));
+    else { rota = 'casas'; mostrarCasas(); }
+    estado.rota = rota;
+    if (semHistorico) window.history.replaceState(null, '', '#' + rota); else if (rotaDaUrl() !== rota) window.location.hash = rota;
+  }
+  window.addEventListener('hashchange', () => { if (estado.perfil && rotaDaUrl() !== estado.rota) irPara(rotaDaUrl(), true); });
+  window.addEventListener('beforeunload', (ev) => { if (estado.mudou) { ev.preventDefault(); ev.returnValue = ''; } });
+  $('navCasas').addEventListener('click', () => irPara('casas'));
+  $('voltarLista').addEventListener('click', () => { if (podeSairDaFicha()) irPara('casas'); });
+  $('btNovaCasa').addEventListener('click', () => irPara('nova'));
+  function podeSairDaFicha() { return !estado.mudou || window.confirm('Há mudanças não salvas. Sair sem salvar?'); }
+
+  /* ---- CASAS: a lista ---- */
+  function carregarCasas() {
+    return Promise.all([
+      sb.from('unidades').select('id, empreendimento, unidade, comprador, status_contrato, data_assinatura, valor_venda, financiamento_proposto, fgts_proposto, saldo_devedor_atual, gerida_no_financeiro, atualizado_em').order('empreendimento').order('unidade'),
+      sb.from('parcelas').select('unidade_id, ordem, data_vencimento, pago').order('ordem')
+    ]).then(([u, p]) => {
+      if (u.error) { avisar(mensagemDeErro(u.error), 'erro'); return; }
+      if (p.error) { avisar(mensagemDeErro(p.error), 'erro'); }
+      estado.casas = u.data || [];
+      const hoje = hojeISO();
+      const resumo = {};
+      (p.data || []).forEach((x) => {
+        const r = resumo[x.unidade_id] || (resumo[x.unidade_id] = { total: 0, pagas: 0, atraso: 0, proxima: null });
+        r.total++;
+        const s = situacaoDaParcela(x, hoje);
+        if (s === 'paga') r.pagas++;
+        if (s === 'atrasada') r.atraso++;
+        if (s !== 'paga' && x.data_vencimento && (!r.proxima || x.data_vencimento < r.proxima)) r.proxima = x.data_vencimento;
+      });
+      estado.resumoParcelas = resumo;
+      const emps = Array.from(new Set(estado.casas.map((c) => c.empreendimento))).sort();
+      const sel = $('filtroEmp'), atual = sel.value;
+      sel.innerHTML = '<option value="">Todos</option>' + emps.map((e) => '<option value="' + esc(e) + '"' + (e === atual ? ' selected' : '') + '>' + esc(e) + '</option>').join('');
+      $('listaEmps').innerHTML = emps.map((e) => '<option value="' + esc(e) + '">').join('');
+      renderizarCasas();
+    });
+  }
+  function mostrarCasas() { $('paginaCasa').hidden = true; $('paginaCasas').hidden = false; $('navCasas').classList.add('ativo'); renderizarCasas(); }
+  function renderizarCasas() {
+    const termo = $('buscaCasas').value.trim().toLowerCase(), emp = $('filtroEmp').value, st = $('filtroStatus').value;
+    const lista = estado.casas.filter((c) =>
+      (!emp || c.empreendimento === emp) && (!st || c.status_contrato === st)
+      && (!termo || [c.comprador, c.unidade, c.empreendimento].join(' ').toLowerCase().indexOf(termo) >= 0));
+    $('resCasas').textContent = estado.casas.length;
+    $('resAtivos').textContent = estado.casas.filter((c) => c.status_contrato === 'ativo').length;
+    $('resAtraso').textContent = Object.keys(estado.resumoParcelas).reduce((s, k) => s + estado.resumoParcelas[k].atraso, 0);
+    $('resFinanceiro').textContent = estado.casas.filter((c) => c.gerida_no_financeiro).length;
+    let empAnterior = null, html = '';
+    lista.forEach((c) => {
+      if (c.empreendimento !== empAnterior) { html += '<tr class="grupo-emp"><td colspan="8">' + esc(c.empreendimento) + '</td></tr>'; empAnterior = c.empreendimento; }
+      const r = estado.resumoParcelas[c.id] || { total: 0, pagas: 0, atraso: 0, proxima: null };
+      html += '<tr class="linha-casa" data-id="' + c.id + '" tabindex="0">'
+        + '<td><strong>' + esc(c.unidade) + '</strong></td>'
+        + '<td>' + esc(c.comprador) + '</td>'
+        + '<td><span class="selo ' + esc(c.status_contrato) + '">' + esc(STATUS[c.status_contrato] || c.status_contrato) + '</span></td>'
+        + '<td class="num">' + reais(c.valor_venda) + '</td>'
+        + '<td class="num">' + reais(c.saldo_devedor_atual) + '</td>'
+        + '<td class="num">' + r.pagas + ' de ' + r.total + (r.atraso ? ' <span class="selo atraso">' + r.atraso + ' em atraso</span>' : '') + '</td>'
+        + '<td>' + (r.proxima ? dataBR(r.proxima) : '—') + '</td>'
+        + '<td>' + (c.gerida_no_financeiro ? '<span class="selo financeiro">Financeiro</span>' : '<span class="selo">Planilha</span>') + '</td>'
+        + '</tr>';
+    });
+    $('listaCasas').innerHTML = html;
+    $('casasVazio').hidden = lista.length > 0;
+  }
+  ['buscaCasas', 'filtroEmp', 'filtroStatus'].forEach((id) => $(id).addEventListener('input', renderizarCasas));
+  $('listaCasas').addEventListener('click', (ev) => { const tr = ev.target.closest('.linha-casa'); if (tr) irPara('casa/' + tr.getAttribute('data-id')); });
+  $('listaCasas').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { const tr = ev.target.closest('.linha-casa'); if (tr) irPara('casa/' + tr.getAttribute('data-id')); } });
+
+  /* ---- A FICHA ---- */
+  function abrirFicha(id) {
+    $('paginaCasas').hidden = true; $('paginaCasa').hidden = false; $('navCasas').classList.remove('ativo');
+    estado.casaId = id; estado.mudou = false; estado.linhas = [];
+    if (!id) {
+      estado.casa = { empreendimento: '', unidade: '', comprador: '', status_contrato: 'ativo', data_assinatura: null, valor_venda: null, financiamento_proposto: null, fgts_proposto: null, saldo_devedor_atual: null };
+      preencherFicha(); renderizarParcelas(); atualizarEstado();
+      $('fEmpreendimento').focus();
+      return;
+    }
+    const casa = estado.casas.find((c) => c.id === id);
+    if (!casa) { avisar('Não achei esta casa.', 'erro'); irPara('casas'); return; }
+    estado.casa = Object.assign({}, casa);
+    preencherFicha(); renderizarParcelas(); atualizarEstado();
+    sb.from('parcelas').select('*').eq('unidade_id', id).order('ordem').then((r) => {
+      if (r.error) { avisar(mensagemDeErro(r.error), 'erro'); return; }
+      if (estado.casaId !== id) return;
+      estado.linhas = (r.data || []).map(linhaDoBanco);
+      renderizarParcelas(); atualizarEstado();
+    });
+  }
+  function linhaDoBanco(p) {
+    const l = { id: p.id, data_vencimento: p.data_vencimento || null, tipo_parcela: p.tipo_parcela || '', pago: !!p.pago, saldo_devedor: p.saldo_devedor, boleto_caminho: p.boleto_caminho || null };
+    CAMPOS.forEach((c) => { l[c.c] = p[c.c]; });
+    return l;
+  }
+  function linhaNova(base) {
+    const l = { id: null, data_vencimento: null, tipo_parcela: 'MENSAIS', pago: false, saldo_devedor: null, boleto_caminho: null };
+    CAMPOS.forEach((c) => { l[c.c] = null; });
+    if (base) {
+      l.tipo_parcela = base.tipo_parcela === 'ATO' ? 'MENSAIS' : (base.tipo_parcela || 'MENSAIS');
+      l.data_vencimento = base.data_vencimento ? mesesDepois(base.data_vencimento, 1) : null;
+      ['comissao', 'incc_percentual', 'parcela_construtora', 'igpm_valor', 'parcela_corrigida', 'amortizacao'].forEach((c) => { l[c] = base[c]; });
+    }
+    return l;
+  }
+  function preencherFicha() {
+    const c = estado.casa;
+    $('fichaTitulo').textContent = estado.casaId ? c.unidade + ' · ' + c.empreendimento : 'Nova casa';
+    $('fichaSub').textContent = estado.casaId ? (c.comprador || '') + (c.gerida_no_financeiro ? ' · preenchida no financeiro' : ' · veio da planilha; ao salvar, passa a ser preenchida aqui') : 'O cabeçalho da aba e o carnê de parcelas.';
+    $('btExcluir').hidden = !estado.casaId;
+    $('fEmpreendimento').value = c.empreendimento || '';
+    $('fUnidade').value = c.unidade || '';
+    $('fComprador').value = c.comprador || '';
+    $('fStatus').value = c.status_contrato || 'ativo';
+    $('fAssinatura').value = c.data_assinatura || '';
+    $('fValorVenda').value = dinheiro(c.valor_venda);
+    $('fFinanciamento').value = dinheiro(c.financiamento_proposto);
+    $('fFgts').value = dinheiro(c.fgts_proposto);
+    $('fSaldo').value = dinheiro(c.saldo_devedor_atual);
+    $('dicaBoleto').hidden = !!estado.casaId;
+  }
+  function lerFicha() {
+    return {
+      empreendimento: $('fEmpreendimento').value.trim().toUpperCase(),
+      unidade: $('fUnidade').value.trim().toUpperCase(),
+      comprador: $('fComprador').value.trim(),
+      status_contrato: $('fStatus').value,
+      data_assinatura: dataISO($('fAssinatura').value),
+      valor_venda: numero($('fValorVenda').value),
+      financiamento_proposto: numero($('fFinanciamento').value),
+      fgts_proposto: numero($('fFgts').value),
+      saldo_devedor_atual: numero($('fSaldo').value)
+    };
+  }
+  $('formCasa').addEventListener('input', (ev) => { if (!ev.target.closest('.parcelas')) marcarMudou(); });
+  // dinheiro: ao sair do campo, formata como a pessoa le
+  $('formCasa').addEventListener('focusout', (ev) => {
+    const el = ev.target;
+    if (el.classList && el.classList.contains('dinheiro')) { const n = numero(el.value); el.value = n === null ? '' : fmt.format(n); }
+    if (el.classList && el.classList.contains('pct')) { const n = numero(el.value); el.value = n === null ? '' : fmtPct.format(n); }
+  });
+  function marcarMudou() { estado.mudou = true; atualizarEstado(); }
+  function atualizarEstado() {
+    const hoje = hojeISO();
+    let pagas = 0, abertas = 0, atraso = 0, soma = 0;
+    estado.linhas.forEach((l) => { const s = situacaoDaParcela(l, hoje); if (s === 'paga') pagas++; else if (s === 'atrasada') atraso++; else abertas++; soma += Number(l.parcela_corrigida) || 0; });
+    $('contaParcelas').textContent = estado.linhas.length + (estado.linhas.length === 1 ? ' parcela' : ' parcelas');
+    $('totPagas').textContent = pagas; $('totAbertas').textContent = abertas; $('totAtraso').textContent = atraso; $('totCorrigidas').textContent = 'R$ ' + fmt.format(soma);
+    $('estadoSalvar').innerHTML = estado.mudou ? '<strong>Mudanças não salvas.</strong> O cliente só vê depois de salvar.' : (estado.casaId ? 'Tudo salvo. O cliente vê isto na Central.' : 'Preencha a casa e salve.');
+    $('btDescartar').disabled = !estado.mudou;
+  }
+
+  /* ---- as parcelas na tela ---- */
+  function renderizarParcelas() {
+    const hoje = hojeISO();
+    $('linhasParcelas').innerHTML = estado.linhas.map((l, i) => {
+      const s = situacaoDaParcela(l, hoje);
+      const campos = CAMPOS.map((c) => '<td class="' + (c.t === 'pct' ? 'c-pct' : 'c-dinheiro') + '"><input type="text" class="' + (c.t === 'pct' ? 'numero pct' : 'dinheiro') + '" inputmode="decimal" data-l="' + i + '" data-campo="' + c.c + '" value="' + esc(c.t === 'pct' ? pct(l[c.c]) : dinheiro(l[c.c])) + '"></td>').join('');
+      const boleto = l.boleto_caminho
+        ? '<span class="boleto-tem"><button type="button" class="bt mini" data-boleto="abrir" data-l="' + i + '">Abrir PDF</button><button type="button" class="bt-icone" title="Tirar o boleto" aria-label="Tirar o boleto" data-boleto="tirar" data-l="' + i + '"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>'
+        : '<span class="anexar' + (estado.casaId && l.id ? '' : ' desligado') + '" title="' + (estado.casaId && l.id ? 'Anexar o boleto em PDF' : 'Salve a casa antes de anexar') + '"><button type="button" class="bt mini leve" tabindex="-1">Anexar PDF</button><input type="file" accept="application/pdf,.pdf" data-boleto="anexar" data-l="' + i + '" aria-label="Anexar o boleto da parcela ' + (i + 1) + '"></span>';
+      return '<tr class="' + s + '" data-l="' + i + '">'
+        + '<td class="ordem">' + (i + 1) + '</td>'
+        + '<td class="c-data"><input type="date" data-l="' + i + '" data-campo="data_vencimento" value="' + esc(l.data_vencimento || '') + '"></td>'
+        + '<td class="c-tipo"><input type="text" list="listaTipos" data-l="' + i + '" data-campo="tipo_parcela" value="' + esc(l.tipo_parcela) + '"></td>'
+        + campos
+        + '<td class="c-pago"><input type="checkbox" class="pago-caixa" data-l="' + i + '" data-campo="pago"' + (l.pago ? ' checked' : '') + ' aria-label="Parcela ' + (i + 1) + ' paga"></td>'
+        + '<td class="c-dinheiro"><input type="text" class="dinheiro" inputmode="decimal" data-l="' + i + '" data-campo="saldo_devedor" value="' + esc(dinheiro(l.saldo_devedor)) + '"></td>'
+        + '<td class="c-boleto">' + boleto + '</td>'
+        + '<td class="c-acoes"><button type="button" class="bt-icone" title="Remover esta parcela" aria-label="Remover a parcela ' + (i + 1) + '" data-remover="' + i + '"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></td>'
+        + '</tr>';
+    }).join('');
+  }
+  // o que a pessoa digita vai para a linha na hora (a tabela nao e redesenhada a cada tecla)
+  $('linhasParcelas').addEventListener('input', (ev) => {
+    const el = ev.target, i = Number(el.getAttribute('data-l')), campo = el.getAttribute('data-campo');
+    if (!campo || !estado.linhas[i]) return;
+    const l = estado.linhas[i];
+    if (campo === 'pago') { l.pago = el.checked; el.closest('tr').className = situacaoDaParcela(l, hojeISO()); }
+    else if (campo === 'data_vencimento') { l.data_vencimento = dataISO(el.value); el.closest('tr').className = situacaoDaParcela(l, hojeISO()); }
+    else if (campo === 'tipo_parcela') l.tipo_parcela = el.value.trim().toUpperCase();
+    else l[campo] = numero(el.value);
+    marcarMudou();
+  });
+  $('linhasParcelas').addEventListener('click', (ev) => {
+    const rem = ev.target.closest('[data-remover]');
+    if (rem) { const i = Number(rem.getAttribute('data-remover')); const l = estado.linhas[i]; if (l.boleto_caminho && !window.confirm('Esta parcela tem boleto anexado. Remover mesmo assim?')) return; estado.linhas.splice(i, 1); renderizarParcelas(); marcarMudou(); return; }
+    const b = ev.target.closest('[data-boleto="abrir"], [data-boleto="tirar"]');
+    if (b) { const i = Number(b.getAttribute('data-l')); if (b.getAttribute('data-boleto') === 'abrir') abrirBoleto(i); else tirarBoleto(i); }
+  });
+  $('linhasParcelas').addEventListener('change', (ev) => {
+    const el = ev.target;
+    if (el.getAttribute('data-boleto') === 'anexar' && el.files && el.files[0]) anexarBoleto(Number(el.getAttribute('data-l')), el.files[0]);
+  });
+  $('btAddParcela').addEventListener('click', () => {
+    estado.linhas.push(linhaNova(estado.linhas[estado.linhas.length - 1]));
+    renderizarParcelas(); marcarMudou();
+    const ultima = $('linhasParcelas').querySelector('tr:last-child input[type="date"]');
+    if (ultima) ultima.focus();
+  });
+
+  /* ---- gerar varias ---- */
+  $('btGerar').addEventListener('click', () => { $('gerarErro').textContent = ''; const u = estado.linhas[estado.linhas.length - 1]; $('gerData').value = u && u.data_vencimento ? mesesDepois(u.data_vencimento, 1) : ''; $('gerValor').value = u ? dinheiro(u.parcela_construtora) : ''; $('modalGerar').hidden = false; $('gerQtd').focus(); });
+  $('btGerarFechar').addEventListener('click', () => { $('modalGerar').hidden = true; });
+  $('btGerarOk').addEventListener('click', () => {
+    const qtd = Math.round(numero($('gerQtd').value) || 0), data = dataISO($('gerData').value), tipo = $('gerTipo').value.trim().toUpperCase() || 'MENSAIS', valor = numero($('gerValor').value);
+    if (qtd < 1 || qtd > 600) { $('gerarErro').textContent = 'Diga quantas parcelas (de 1 a 600).'; return; }
+    if (!data) { $('gerarErro').textContent = 'Diga o primeiro vencimento.'; return; }
+    for (let i = 0; i < qtd; i++) {
+      const l = linhaNova(null);
+      l.tipo_parcela = tipo; l.data_vencimento = mesesDepois(data, i); l.parcela_construtora = valor; l.parcela_corrigida = valor;
+      estado.linhas.push(l);
+    }
+    $('modalGerar').hidden = true;
+    renderizarParcelas(); marcarMudou();
+    avisar(qtd + ' parcelas geradas. Ajuste o que muda e salve.', 'ok');
+  });
+
+  /* ---- colar da planilha: as colunas achadas pelo NOME do cabecalho, como no sincronizador ---- */
+  const RE_ACENTOS = new RegExp('[' + String.fromCharCode(768) + '-' + String.fromCharCode(879) + ']', 'g');
+  const norm = (v) => String(v === null || v === undefined ? '' : v).normalize('NFD').replace(RE_ACENTOS, '').toUpperCase().replace(/\s+/g, ' ').trim();
+  function campoDoCabecalho(h) {
+    const t = norm(h);
+    if (!t) return null;
+    if (t.indexOf('SALDO DEVEDOR') === 0) return 'saldo_devedor';
+    if (t.indexOf('STATUS DA PARCELA') === 0 || t === 'STATUS' || t === 'PAGO') return 'status_texto';
+    if (t.indexOf('AMORTIZACAO') === 0) return 'amortizacao';
+    if (t.indexOf('IGPM') === 0) return 'igpm_valor';
+    if (t.indexOf('PARCELA CORRIGIDA') === 0) return 'parcela_corrigida';
+    if (t.indexOf('PARCELAS CONSTRUTORA') === 0 || t.indexOf('PARCELA CONSTRUTORA') === 0) return 'parcela_construtora';
+    if (t.indexOf('SALDO CORRIGIDO') === 0) return 'saldo_corrigido';
+    if (t.indexOf('SALDO DA CONSTRUTORA') === 0) return 'saldo_construtora';
+    if (t.indexOf('INCC') === 0) return t.indexOf('MES') >= 0 ? 'incc_valor' : 'incc_percentual';
+    if (t.indexOf('COMISSAO') === 0) return 'comissao';
+    if (t.indexOf('TIPO DE PARCELA') === 0 || t === 'TIPO') return 'tipo_parcela';
+    if (t === 'DATA' || t === 'VENCIMENTO' || t === 'DATA DE VENCIMENTO') return 'data_vencimento';
+    return null;
+  }
+  function lerPlanilhaColada(texto) {
+    const linhas = String(texto || '').replace(/\r/g, '').split('\n').map((l) => l.split(l.indexOf('\t') >= 0 ? '\t' : ';'));
+    let cab = -1, colunas = {};
+    for (let r = 0; r < linhas.length; r++) {
+      const mapa = {};
+      linhas[r].forEach((cel, c) => { const campo = campoDoCabecalho(cel); if (campo && mapa[campo] === undefined) mapa[campo] = c; });
+      if (mapa.data_vencimento !== undefined && mapa.tipo_parcela !== undefined) { cab = r; colunas = mapa; break; }
+    }
+    if (cab === -1) return { erro: 'Não achei a linha de cabeçalho: ela precisa ter DATA e TIPO DE PARCELA.' };
+    const saida = [];
+    let ignoradas = 0;
+    for (let r = cab + 1; r < linhas.length; r++) {
+      const cels = linhas[r];
+      const data = dataISO(cels[colunas.data_vencimento]);
+      if (!data) { if (cels.join('').trim()) ignoradas++; continue; }
+      const l = linhaNova(null);
+      l.data_vencimento = data;
+      l.tipo_parcela = norm(cels[colunas.tipo_parcela]) || 'MENSAIS';
+      CAMPOS.forEach((c) => { if (colunas[c.c] !== undefined) l[c.c] = numero(cels[colunas[c.c]]); });
+      if (colunas.saldo_devedor !== undefined) l.saldo_devedor = numero(cels[colunas.saldo_devedor]);
+      if (colunas.status_texto !== undefined) l.pago = /pago|paga|sim|ok/i.test(String(cels[colunas.status_texto] || ''));
+      saida.push(l);
+    }
+    if (!saida.length) return { erro: 'Achei o cabeçalho, mas nenhuma linha com data abaixo dele.' };
+    return { linhas: saida, ignoradas };
+  }
+  $('btColar').addEventListener('click', () => { $('colarErro').textContent = ''; $('colarTexto').value = ''; $('modalColar').hidden = false; $('colarTexto').focus(); });
+  $('btColarFechar').addEventListener('click', () => { $('modalColar').hidden = true; });
+  $('btColarOk').addEventListener('click', () => {
+    const r = lerPlanilhaColada($('colarTexto').value);
+    if (r.erro) { $('colarErro').textContent = r.erro; return; }
+    const modo = document.querySelector('input[name="colarModo"]:checked').value;
+    if (modo === 'substituir' && estado.linhas.some((l) => l.boleto_caminho) && !window.confirm('Algumas parcelas têm boleto anexado e serão substituídas. Continuar?')) return;
+    estado.linhas = modo === 'substituir' ? r.linhas : estado.linhas.concat(r.linhas);
+    $('modalColar').hidden = true;
+    renderizarParcelas(); marcarMudou();
+    avisar(r.linhas.length + ' parcelas lidas da planilha' + (r.ignoradas ? ' (' + r.ignoradas + ' linha(s) sem data ignorada(s))' : '') + '. Confira e salve.', 'ok');
+  });
+  document.querySelectorAll('.modal').forEach((m) => m.addEventListener('click', (ev) => { if (ev.target === m) m.hidden = true; }));
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') document.querySelectorAll('.modal').forEach((m) => { m.hidden = true; }); });
+
+  /* ---- salvar: a casa (update pelo id, ou insert), as parcelas no lugar (upsert por ordem) e as sobras fora ---- */
+  $('formCasa').addEventListener('submit', (ev) => { ev.preventDefault(); salvar(); });
+  $('btDescartar').addEventListener('click', () => { if (window.confirm('Descartar as mudanças não salvas?')) abrirFicha(estado.casaId); });
+  function salvar() {
+    const casa = lerFicha();
+    if (!casa.empreendimento || !casa.unidade) { avisar('Preencha o empreendimento e a unidade.', 'erro'); $('fEmpreendimento').focus(); return; }
+    if (!casa.comprador) { avisar('Preencha o comprador: é por ele que o cliente acha a casa na Central.', 'erro'); $('fComprador').focus(); return; }
+    const semData = estado.linhas.findIndex((l) => !l.data_vencimento);
+    if (semData >= 0) { avisar('A parcela ' + (semData + 1) + ' está sem data.', 'erro'); return; }
+    casa.gerida_no_financeiro = true;
+    casa.aba_origem = estado.casa.aba_origem || casa.unidade;
+    casa.atualizado_em = new Date().toISOString();
+    const botao = $('btSalvar'); botao.disabled = true; $('estadoSalvar').textContent = 'Salvando...';
+    const gravaCasa = estado.casaId
+      ? sb.from('unidades').update(casa).eq('id', estado.casaId).select().single()
+      : sb.from('unidades').insert(casa).select().single();
+    gravaCasa.then((r) => {
+      if (r.error) throw r.error;
+      const u = r.data;
+      const agora = new Date().toISOString();
+      const parcelas = estado.linhas.map((l, i) => {
+        const p = { unidade_id: u.id, ordem: i + 1, data_vencimento: l.data_vencimento, tipo_parcela: l.tipo_parcela || null, pago: !!l.pago, status_texto: l.pago ? 'PAGO' : null, saldo_devedor: l.saldo_devedor, boleto_caminho: l.boleto_caminho || null, atualizado_em: agora };
+        CAMPOS.forEach((c) => { p[c.c] = l[c.c]; });
+        return p;
+      });
+      const grava = parcelas.length ? sb.from('parcelas').upsert(parcelas, { onConflict: 'unidade_id,ordem' }).select() : Promise.resolve({ data: [], error: null });
+      return grava.then((rp) => {
+        if (rp.error) throw rp.error;
+        // as sobras saem por ULTIMO, depois de o novo estar gravado (nunca "apaga tudo e recria")
+        return sb.from('parcelas').delete().eq('unidade_id', u.id).gt('ordem', parcelas.length).then((rd) => {
+          if (rd.error) throw rd.error;
+          return u;
+        });
+      });
+    }).then((u) => {
+      botao.disabled = false;
+      estado.mudou = false;
+      avisar('Casa salva. O cliente já vê isto na Central.', 'ok');
+      return carregarCasas().then(() => { if (estado.casaId !== u.id) { estado.casaId = u.id; window.history.replaceState(null, '', '#casa/' + u.id); estado.rota = 'casa/' + u.id; } abrirFicha(u.id); });
+    }).catch((e) => {
+      botao.disabled = false;
+      avisar(mensagemDeErro(e), 'erro');
+      atualizarEstado();
+    });
+  }
+
+  /* ---- excluir a casa (as parcelas e o acesso do cliente a ela vao junto) ---- */
+  $('btExcluir').addEventListener('click', () => {
+    const c = estado.casa;
+    if (!estado.casaId) return;
+    if (!window.confirm('Excluir ' + c.unidade + ' (' + c.empreendimento + ')? Isso apaga as parcelas, os boletos e o acesso do cliente a esta casa na Central. Não dá para desfazer.')) return;
+    const caminhos = estado.linhas.filter((l) => l.boleto_caminho).map((l) => l.boleto_caminho);
+    const tira = caminhos.length ? sb.storage.from('boletos').remove(caminhos) : Promise.resolve({ error: null });
+    tira.then(() => sb.from('unidades').delete().eq('id', estado.casaId)).then((r) => {
+      if (r.error) { avisar(mensagemDeErro(r.error), 'erro'); return; }
+      estado.mudou = false;
+      avisar('Casa excluída.', 'ok');
+      carregarCasas().then(() => irPara('casas'));
+    });
+  });
+
+  /* ---- o boleto do mes: PDF no bucket privado, caminho na parcela ---- */
+  function caminhoSeguro(nome) { return String(nome || 'boleto.pdf').normalize('NFD').replace(RE_ACENTOS, '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'boleto.pdf'; }
+  function anexarBoleto(i, arquivo) {
+    const l = estado.linhas[i];
+    if (!estado.casaId || !l || !l.id) { avisar('Salve a casa antes de anexar o boleto.', 'erro'); return; }
+    if (!/pdf$/i.test(arquivo.name) && arquivo.type !== 'application/pdf') { avisar('O boleto precisa ser um PDF.', 'erro'); return; }
+    if (arquivo.size > 10 * 1024 * 1024) { avisar('O PDF é grande demais (máximo 10 MB).', 'erro'); return; }
+    const caminho = estado.casaId + '/' + (i + 1) + '-' + Date.now() + '-' + caminhoSeguro(arquivo.name);
+    avisar('Enviando o boleto...', 'info');
+    sb.storage.from('boletos').upload(caminho, arquivo, { contentType: 'application/pdf', upsert: false }).then((r) => {
+      if (r.error) throw r.error;
+      const antigo = l.boleto_caminho;
+      return sb.from('parcelas').update({ boleto_caminho: caminho, atualizado_em: new Date().toISOString() }).eq('id', l.id).then((ru) => {
+        if (ru.error) throw ru.error;
+        l.boleto_caminho = caminho;
+        if (antigo) sb.storage.from('boletos').remove([antigo]);
+        renderizarParcelas();
+        avisar('Boleto da parcela ' + (i + 1) + ' anexado. O cliente já pode abrir na Central.', 'ok');
+      });
+    }).catch((e) => avisar(mensagemDeErro(e), 'erro'));
+  }
+  function abrirBoleto(i) {
+    const l = estado.linhas[i];
+    if (!l || !l.boleto_caminho) return;
+    const janela = window.open('', '_blank');
+    sb.storage.from('boletos').createSignedUrl(l.boleto_caminho, 600).then((r) => {
+      if (r.error || !r.data) { if (janela) janela.close(); throw r.error || new Error('sem link'); }
+      if (janela) janela.location.href = r.data.signedUrl; else window.location.href = r.data.signedUrl;
+    }).catch((e) => avisar(mensagemDeErro(e), 'erro'));
+  }
+  function tirarBoleto(i) {
+    const l = estado.linhas[i];
+    if (!l || !l.boleto_caminho) return;
+    if (!window.confirm('Tirar o boleto da parcela ' + (i + 1) + '?')) return;
+    const caminho = l.boleto_caminho;
+    sb.storage.from('boletos').remove([caminho]).then(() => sb.from('parcelas').update({ boleto_caminho: null, atualizado_em: new Date().toISOString() }).eq('id', l.id)).then((r) => {
+      if (r.error) throw r.error;
+      l.boleto_caminho = null;
+      renderizarParcelas();
+      avisar('Boleto removido.', 'ok');
+    }).catch((e) => avisar(mensagemDeErro(e), 'erro'));
+  }
+})();
+</script>
+</body>
+</html>
