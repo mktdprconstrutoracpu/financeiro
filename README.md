@@ -77,6 +77,18 @@ A Central mostra o botao **Boleto** nas parcelas que tem arquivo e abre um
 link assinado, que vale alguns minutos (o bucket e privado: ninguem abre
 boleto de outra casa).
 
+### O boleto vai para o WhatsApp do cliente
+
+Rode `sql/002_whatsapp.sql` (duas colunas: `unidades.telefone` e
+`parcelas.boleto_enviado_em`). Na ficha da casa aparece o campo **WhatsApp do
+comprador**; a pessoa digita como quiser, `(85) 99999-9999`, e o banco guarda
+so numeros com o 55 na frente. Quando um boleto e anexado, o Supabase avisa o
+n8n (Database Webhook, `sql/003`, com a URL e o segredo do seu n8n, por isso
+fora do repositorio), que manda o PDF para o WhatsApp do comprador pela API
+oficial da Meta e grava a hora em `boleto_enviado_em`; a linha da parcela
+mostra o selo **Enviado**. Casa sem telefone: o boleto fica so na Central, e
+o aviso ao anexar diz isso. Trocar ou tirar o PDF zera o selo.
+
 ## Onde esta no codigo
 
 Tudo em `index.html`. O banco em `sql/001_financeiro.sql`. A leitura da

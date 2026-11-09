@@ -11,6 +11,10 @@
      unidades e parcelas (as mesmas que a Central do Cliente le), com o login
      do Supabase e as travas do banco (sql/001_financeiro.sql).
      Mais um campo que a planilha nao tinha: o boleto do mes, por parcela.
+     (09/11/2026) O boleto vai para o WhatsApp do cliente: a ficha da casa ganhou
+     o campo "WhatsApp do comprador" (unidades.telefone, so numeros com o 55) e,
+     quando o n8n manda o PDF, grava parcelas.boleto_enviado_em; a linha da
+     parcela mostra o selo "Enviado" (sql/002_whatsapp.sql).
      ============================================================================ -->
 <link rel="icon" href="logo-dpr-transparente.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -173,6 +177,9 @@
   .pago-caixa:checked::after { content: ''; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px; border: solid var(--white); border-width: 0 2px 2px 0; transform: rotate(45deg); }
   .boleto-tem { display: inline-flex; align-items: center; gap: 6px; }
   .boleto-tem .bt.mini { min-height: 28px; padding: 0 10px; font-size: 12px; }
+  .boleto-enviado { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--verde); white-space: nowrap; }
+  .boleto-enviado svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .parcelas td.c-boleto:has(.boleto-enviado) { width: 232px; }
   .anexar { position: relative; display: inline-flex; }
   .anexar input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
   .anexar .bt.mini { min-height: 28px; padding: 0 10px; font-size: 12px; border-style: dashed; }
@@ -337,6 +344,7 @@
           <div class="campo"><label for="fUnidade">Unidade</label><input type="text" id="fUnidade" placeholder="CASA 03" autocomplete="off" required></div>
           <div class="campo"><label for="fStatus">Situação do contrato</label><select id="fStatus"><option value="ativo">Ativo</option><option value="aguardando_assinatura">Aguardando assinatura</option><option value="distrato_aguardando">Distrato (aguardando)</option><option value="distrato_realizado">Distrato realizado</option></select></div>
           <div class="campo larga"><label for="fComprador">Comprador</label><input type="text" id="fComprador" placeholder="Nome completo, como no contrato" autocomplete="off" required><span class="dica">É por este nome que o cliente acha a casa ao se cadastrar na Central.</span></div>
+          <div class="campo"><label for="fTelefone">WhatsApp do comprador</label><input type="tel" id="fTelefone" inputmode="tel" placeholder="(85) 99999-9999" autocomplete="off"><span class="dica">Para onde o boleto vai assim que for anexado.</span></div>
           <div class="campo"><label for="fAssinatura">Data de assinatura</label><input type="date" id="fAssinatura"></div>
           <div class="campo"><label for="fValorVenda">Valor da venda</label><input type="text" id="fValorVenda" class="dinheiro" inputmode="decimal" placeholder="0,00"></div>
           <div class="campo"><label for="fFinanciamento">Financiamento proposto</label><input type="text" id="fFinanciamento" class="dinheiro" inputmode="decimal" placeholder="0,00"></div>
@@ -496,6 +504,30 @@
     const ultimo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
     return ano + '-' + String(mes + 1).padStart(2, '0') + '-' + String(Math.min(d, ultimo)).padStart(2, '0');
   }
+  // WhatsApp do comprador: a pessoa digita como quiser ("(85) 99999-9999", "+55 85 9 9999-9999");
+  // no banco vai so numeros com o DDI 55 na frente (5585999998888), que e o formato que a API da Meta pede.
+  // Devolve '' quando vazio e null quando o que sobrou nao e um celular brasileiro (10 a 13 digitos).
+  function telefoneNumeros(v) {
+    let d = String(v || '').replace(/\D/g, '');
+    if (!d) return '';
+    if (d.length === 10 || d.length === 11) d = '55' + d;
+    if (d.length === 12 || d.length === 13) return d.indexOf('55') === 0 ? d : null;
+    return null;
+  }
+  // 5585999998888 -> "(85) 99999-9999", para a ficha mostrar como a pessoa le
+  function telefoneBR(d) {
+    d = String(d || '').replace(/\D/g, '');
+    if (!d) return '';
+    const local = d.indexOf('55') === 0 && d.length >= 12 ? d.slice(2) : d;
+    if (local.length < 10 || local.length > 11) return d;
+    return '(' + local.slice(0, 2) + ') ' + local.slice(2, -4) + '-' + local.slice(-4);
+  }
+  // ISO completo -> "09/11 14:32", para o selo "Enviado"
+  function horaBR(iso) {
+    const t = new Date(iso || '');
+    if (Number.isNaN(t.getTime())) return '';
+    return String(t.getDate()).padStart(2, '0') + '/' + String(t.getMonth() + 1).padStart(2, '0') + ' ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+  }
   function situacaoDaParcela(p, hoje) {
     if (p.pago) return 'paga';
     if (p.data_vencimento && p.data_vencimento < hoje) return 'atrasada';
@@ -589,7 +621,7 @@
   /* ---- CASAS: a lista ---- */
   function carregarCasas() {
     return Promise.all([
-      sb.from('unidades').select('id, empreendimento, unidade, comprador, status_contrato, data_assinatura, valor_venda, financiamento_proposto, fgts_proposto, saldo_devedor_atual, gerida_no_financeiro, atualizado_em').order('empreendimento').order('unidade'),
+      sb.from('unidades').select('id, empreendimento, unidade, comprador, telefone, status_contrato, data_assinatura, valor_venda, financiamento_proposto, fgts_proposto, saldo_devedor_atual, gerida_no_financeiro, atualizado_em').order('empreendimento').order('unidade'),
       sb.from('parcelas').select('unidade_id, ordem, data_vencimento, pago').order('ordem')
     ]).then(([u, p]) => {
       if (u.error) { avisar(mensagemDeErro(u.error), 'erro'); return; }
@@ -650,7 +682,7 @@
     $('paginaCasas').hidden = true; $('paginaCasa').hidden = false; $('navCasas').classList.remove('ativo');
     estado.casaId = id; estado.mudou = false; estado.linhas = [];
     if (!id) {
-      estado.casa = { empreendimento: '', unidade: '', comprador: '', status_contrato: 'ativo', data_assinatura: null, valor_venda: null, financiamento_proposto: null, fgts_proposto: null, saldo_devedor_atual: null };
+      estado.casa = { empreendimento: '', unidade: '', comprador: '', telefone: null, status_contrato: 'ativo', data_assinatura: null, valor_venda: null, financiamento_proposto: null, fgts_proposto: null, saldo_devedor_atual: null };
       preencherFicha(); renderizarParcelas(); atualizarEstado();
       $('fEmpreendimento').focus();
       return;
@@ -667,12 +699,12 @@
     });
   }
   function linhaDoBanco(p) {
-    const l = { id: p.id, data_vencimento: p.data_vencimento || null, tipo_parcela: p.tipo_parcela || '', pago: !!p.pago, saldo_devedor: p.saldo_devedor, boleto_caminho: p.boleto_caminho || null };
+    const l = { id: p.id, data_vencimento: p.data_vencimento || null, tipo_parcela: p.tipo_parcela || '', pago: !!p.pago, saldo_devedor: p.saldo_devedor, boleto_caminho: p.boleto_caminho || null, boleto_enviado_em: p.boleto_enviado_em || null };
     CAMPOS.forEach((c) => { l[c.c] = p[c.c]; });
     return l;
   }
   function linhaNova(base) {
-    const l = { id: null, data_vencimento: null, tipo_parcela: 'MENSAIS', pago: false, saldo_devedor: null, boleto_caminho: null };
+    const l = { id: null, data_vencimento: null, tipo_parcela: 'MENSAIS', pago: false, saldo_devedor: null, boleto_caminho: null, boleto_enviado_em: null };
     CAMPOS.forEach((c) => { l[c.c] = null; });
     if (base) {
       l.tipo_parcela = base.tipo_parcela === 'ATO' ? 'MENSAIS' : (base.tipo_parcela || 'MENSAIS');
@@ -689,6 +721,7 @@
     $('fEmpreendimento').value = c.empreendimento || '';
     $('fUnidade').value = c.unidade || '';
     $('fComprador').value = c.comprador || '';
+    $('fTelefone').value = telefoneBR(c.telefone);
     $('fStatus').value = c.status_contrato || 'ativo';
     $('fAssinatura').value = c.data_assinatura || '';
     $('fValorVenda').value = dinheiro(c.valor_venda);
@@ -702,6 +735,7 @@
       empreendimento: $('fEmpreendimento').value.trim().toUpperCase(),
       unidade: $('fUnidade').value.trim().toUpperCase(),
       comprador: $('fComprador').value.trim(),
+      telefone: telefoneNumeros($('fTelefone').value) || null,
       status_contrato: $('fStatus').value,
       data_assinatura: dataISO($('fAssinatura').value),
       valor_venda: numero($('fValorVenda').value),
@@ -716,6 +750,8 @@
     const el = ev.target;
     if (el.classList && el.classList.contains('dinheiro')) { const n = numero(el.value); el.value = n === null ? '' : fmt.format(n); }
     if (el.classList && el.classList.contains('pct')) { const n = numero(el.value); el.value = n === null ? '' : fmtPct.format(n); }
+    // telefone: se der para entender, mostra como (85) 99999-9999; se nao, deixa como esta para a pessoa ver o erro ao salvar
+    if (el.id === 'fTelefone') { const d = telefoneNumeros(el.value); if (d) el.value = telefoneBR(d); }
   });
   function marcarMudou() { estado.mudou = true; atualizarEstado(); }
   function atualizarEstado() {
@@ -735,7 +771,9 @@
       const s = situacaoDaParcela(l, hoje);
       const campos = CAMPOS.map((c) => '<td class="' + (c.t === 'pct' ? 'c-pct' : 'c-dinheiro') + '"><input type="text" class="' + (c.t === 'pct' ? 'numero pct' : 'dinheiro') + '" inputmode="decimal" data-l="' + i + '" data-campo="' + c.c + '" value="' + esc(c.t === 'pct' ? pct(l[c.c]) : dinheiro(l[c.c])) + '"></td>').join('');
       const boleto = l.boleto_caminho
-        ? '<span class="boleto-tem"><button type="button" class="bt mini" data-boleto="abrir" data-l="' + i + '">Abrir PDF</button><button type="button" class="bt-icone" title="Tirar o boleto" aria-label="Tirar o boleto" data-boleto="tirar" data-l="' + i + '"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>'
+        ? '<span class="boleto-tem"><button type="button" class="bt mini" data-boleto="abrir" data-l="' + i + '">Abrir PDF</button>'
+          + (l.boleto_enviado_em ? '<span class="boleto-enviado" title="Enviado no WhatsApp do comprador em ' + esc(horaBR(l.boleto_enviado_em)) + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5L20 7"/></svg>Enviado ' + esc(horaBR(l.boleto_enviado_em)) + '</span>' : '')
+          + '<button type="button" class="bt-icone" title="Tirar o boleto" aria-label="Tirar o boleto" data-boleto="tirar" data-l="' + i + '"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>'
         : '<span class="anexar' + (estado.casaId && l.id ? '' : ' desligado') + '" title="' + (estado.casaId && l.id ? 'Anexar o boleto em PDF' : 'Salve a casa antes de anexar') + '"><button type="button" class="bt mini leve" tabindex="-1">Anexar PDF</button><input type="file" accept="application/pdf,.pdf" data-boleto="anexar" data-l="' + i + '" aria-label="Anexar o boleto da parcela ' + (i + 1) + '"></span>';
       return '<tr class="' + s + '" data-l="' + i + '">'
         + '<td class="ordem">' + (i + 1) + '</td>'
@@ -862,6 +900,7 @@
     const casa = lerFicha();
     if (!casa.empreendimento || !casa.unidade) { avisar('Preencha o empreendimento e a unidade.', 'erro'); $('fEmpreendimento').focus(); return; }
     if (!casa.comprador) { avisar('Preencha o comprador: é por ele que o cliente acha a casa na Central.', 'erro'); $('fComprador').focus(); return; }
+    if ($('fTelefone').value.trim() && telefoneNumeros($('fTelefone').value) === null) { avisar('Confira o WhatsApp do comprador: DDD e número, como (85) 99999-9999.', 'erro'); $('fTelefone').focus(); return; }
     const semData = estado.linhas.findIndex((l) => !l.data_vencimento);
     if (semData >= 0) { avisar('A parcela ' + (semData + 1) + ' está sem data.', 'erro'); return; }
     casa.gerida_no_financeiro = true;
@@ -928,12 +967,16 @@
     sb.storage.from('boletos').upload(caminho, arquivo, { contentType: 'application/pdf', upsert: false }).then((r) => {
       if (r.error) throw r.error;
       const antigo = l.boleto_caminho;
-      return sb.from('parcelas').update({ boleto_caminho: caminho, atualizado_em: new Date().toISOString() }).eq('id', l.id).then((ru) => {
+      // boleto_enviado_em volta a nulo: e um PDF novo, o n8n manda de novo e o selo "Enviado" some ate la
+      return sb.from('parcelas').update({ boleto_caminho: caminho, boleto_enviado_em: null, atualizado_em: new Date().toISOString() }).eq('id', l.id).then((ru) => {
         if (ru.error) throw ru.error;
         l.boleto_caminho = caminho;
+        l.boleto_enviado_em = null;
         if (antigo) sb.storage.from('boletos').remove([antigo]);
         renderizarParcelas();
-        avisar('Boleto da parcela ' + (i + 1) + ' anexado. O cliente já pode abrir na Central.', 'ok');
+        // quem manda e o n8n, lendo o telefone que esta GRAVADO na casa; por isso o aviso olha estado.casa e nao o campo
+        avisar('Boleto da parcela ' + (i + 1) + ' anexado. O cliente já pode abrir na Central'
+          + (estado.casa.telefone ? ' e vai para o WhatsApp ' + telefoneBR(estado.casa.telefone) + '.' : '. Sem WhatsApp na ficha, não foi enviado.'), 'ok');
       });
     }).catch((e) => avisar(mensagemDeErro(e), 'erro'));
   }
@@ -951,9 +994,10 @@
     if (!l || !l.boleto_caminho) return;
     if (!window.confirm('Tirar o boleto da parcela ' + (i + 1) + '?')) return;
     const caminho = l.boleto_caminho;
-    sb.storage.from('boletos').remove([caminho]).then(() => sb.from('parcelas').update({ boleto_caminho: null, atualizado_em: new Date().toISOString() }).eq('id', l.id)).then((r) => {
+    sb.storage.from('boletos').remove([caminho]).then(() => sb.from('parcelas').update({ boleto_caminho: null, boleto_enviado_em: null, atualizado_em: new Date().toISOString() }).eq('id', l.id)).then((r) => {
       if (r.error) throw r.error;
       l.boleto_caminho = null;
+      l.boleto_enviado_em = null;
       renderizarParcelas();
       avisar('Boleto removido.', 'ok');
     }).catch((e) => avisar(mensagemDeErro(e), 'erro'));
