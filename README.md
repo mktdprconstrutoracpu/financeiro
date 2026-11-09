@@ -79,15 +79,43 @@ boleto de outra casa).
 
 ### O boleto vai para o WhatsApp do cliente
 
-Rode `sql/002_whatsapp.sql` (duas colunas: `unidades.telefone` e
-`parcelas.boleto_enviado_em`). Na ficha da casa aparece o campo **WhatsApp do
-comprador**; a pessoa digita como quiser, `(85) 99999-9999`, e o banco guarda
-so numeros com o 55 na frente. Quando um boleto e anexado, o Supabase avisa o
-n8n (Database Webhook, `sql/003`, com a URL e o segredo do seu n8n, por isso
-fora do repositorio), que manda o PDF para o WhatsApp do comprador pela API
-oficial da Meta e grava a hora em `boleto_enviado_em`; a linha da parcela
-mostra o selo **Enviado**. Casa sem telefone: o boleto fica so na Central, e
-o aviso ao anexar diz isso. Trocar ou tirar o PDF zera o selo.
+Na ficha da casa aparece o campo **WhatsApp do comprador**; a pessoa digita
+como quiser, `(85) 99999-9999`, e o banco guarda so numeros com o 55 na
+frente. Quando um boleto e anexado, o banco avisa o n8n, que manda o PDF para
+o WhatsApp do comprador pela API oficial da Meta e grava a hora em
+`parcelas.boleto_enviado_em`; a linha da parcela mostra o selo **Enviado**.
+Casa sem telefone: o boleto fica so na Central, e o aviso ao anexar diz isso.
+Trocar ou tirar o PDF zera o selo.
+
+Para ligar, nesta ordem:
+
+1. **Banco:** rode `sql/002_whatsapp.sql` (as duas colunas) e depois
+   `sql/003_aviso_n8n.sql` (a tabela `fin_config` e o gatilho
+   `parcelas_boleto_para_n8n`, que faz o POST com `pg_net`). O gatilho so
+   dispara quando `boleto_caminho` muda para um PDF novo; salvar a casa,
+   marcar pago ou tirar o boleto nao avisam. Sem URL em `fin_config` ele
+   fica quieto e o anexo funciona normal.
+2. **n8n:** importe `n8n/boleto-whatsapp.json` (Workflows > Import from
+   file). O no amarelo "Leia primeiro" diz as tres credenciais a criar:
+   Header Auth do webhook (`x-segredo`), Supabase API (chave
+   **service_role**, so no n8n) e Header Auth da Meta (`Authorization:
+   Bearer <token permanente>`). No no **Configuracao** ficam o ID do numero
+   do WhatsApp, o nome do modelo e os dias de validade do link do PDF.
+3. **Meta:** modelo `boleto_anexado` (Utilidade, pt_BR, cabecalho Documento,
+   4 variaveis: nome, casa, vencimento, valor). O texto esta no no "Leia
+   primeiro". Espere a aprovacao.
+4. **Ligar:** ative o fluxo, copie a URL de **producao** do no Webhook e
+   grave na `fin_config` junto com o segredo (o insert esta comentado no
+   comeco do `sql/003_aviso_n8n.sql`). Anexe um boleto numa casa com
+   telefone e confira: WhatsApp do cliente, selo Enviado na parcela, e a
+   execucao no n8n. Se nada chegou no n8n, `select * from
+   net._http_response order by id desc limit 5` no SQL Editor mostra o que o
+   banco recebeu de volta.
+
+O fluxo nao reenvia sozinho: se a Meta recusar (numero sem WhatsApp, modelo
+nao aprovado, token vencido), a execucao termina em "Nao enviado: ver o erro"
+e a parcela fica sem o selo. Para mandar de novo, tire o PDF e anexe outra
+vez.
 
 ## Onde esta no codigo
 

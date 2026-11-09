@@ -1,0 +1,257 @@
+{
+  "name": "DPR Financeiro: boleto anexado -> WhatsApp do cliente",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Boleto anexado no Financeiro -> WhatsApp do cliente\n\n**O que faz:** o banco da DPR (gatilho `parcelas_boleto_para_n8n`, `sql/003_aviso_n8n.sql`) chama este webhook quando um boleto novo e anexado. O fluxo busca a casa e o telefone do comprador, assina o PDF por 7 dias, manda pela API oficial da Meta com o PDF no cabecalho e grava `parcelas.boleto_enviado_em` (o Financeiro mostra o selo Enviado).\n\n**Credenciais a criar (uma vez):**\n1. **Header Auth** para o no Webhook: nome do cabecalho `x-segredo`, valor = o mesmo segredo gravado em `fin_config.n8n_boleto_segredo`.\n2. **Supabase API** para os tres nos do Supabase: host `https://roashkfdjgsweuftqhyx.supabase.co`, chave = **service_role** (Settings > API). So aqui, nunca no site.\n3. **Header Auth** para o no do WhatsApp: cabecalho `Authorization`, valor `Bearer <token permanente da Meta>`.\n\n**No no Configuracao:** troque `phoneNumberId` pelo ID do numero real quando sair do numero de teste.\n\n**Modelo na Meta** (WhatsApp Manager > Modelos): nome `boleto_anexado`, categoria Utilidade, idioma pt_BR, cabecalho Documento, corpo:\n\n_Ola, {{1}}! Segue o boleto da sua parcela da {{2}}, com vencimento em {{3}}, no valor de {{4}}. O PDF esta anexado nesta mensagem. Qualquer duvida, e so responder aqui. DPR Construtora_\n\nDepois de aprovado, ative o fluxo e grave a URL de producao do Webhook em `fin_config.n8n_boleto_url`.",
+        "height": 720,
+        "width": 520
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "name": "Leia primeiro",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-900, -120]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "boleto-anexado",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000002",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-320, 200],
+      "webhookId": "boleto-anexado-dpr"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "c0000000-0000-4000-8000-000000000001", "name": "supabaseUrl", "value": "https://roashkfdjgsweuftqhyx.supabase.co", "type": "string" },
+            { "id": "c0000000-0000-4000-8000-000000000002", "name": "phoneNumberId", "value": "1425282740660657", "type": "string" },
+            { "id": "c0000000-0000-4000-8000-000000000003", "name": "template", "value": "boleto_anexado", "type": "string" },
+            { "id": "c0000000-0000-4000-8000-000000000004", "name": "idioma", "value": "pt_BR", "type": "string" },
+            { "id": "c0000000-0000-4000-8000-000000000005", "name": "linkDias", "value": 7, "type": "number" }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000003",
+      "name": "Configuração",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-100, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "id": "d0000000-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.body.record.boleto_caminho }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            },
+            {
+              "id": "d0000000-0000-4000-8000-000000000002",
+              "leftValue": "={{ $json.body.record.boleto_caminho }}",
+              "rightValue": "={{ $json.body.old_record.boleto_caminho }}",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000004",
+      "name": "Boleto novo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [120, 200]
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-0000-4000-8000-000000000005",
+      "name": "Sem boleto novo",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [340, 380]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Configuração').item.json.supabaseUrl }}/rest/v1/unidades",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id", "value": "=eq.{{ $json.body.record.unidade_id }}" },
+            { "name": "select", "value": "id,empreendimento,unidade,comprador,telefone" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000006",
+      "name": "Casa do comprador",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [340, 120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "id": "d0000000-0000-4000-8000-000000000003",
+              "leftValue": "={{ $json.telefone }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000007",
+      "name": "Tem telefone?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [560, 120]
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-0000-4000-8000-000000000008",
+      "name": "Casa sem telefone",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [780, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuração').item.json.supabaseUrl }}/storage/v1/object/sign/boletos/{{ $('Webhook').item.json.body.record.boleto_caminho }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ expiresIn: Number($('Configuração').item.json.linkDias) * 86400 }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000009",
+      "name": "Link do PDF (7 dias)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 40]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "e0000000-0000-4000-8000-000000000001", "name": "telefone", "value": "={{ String($('Casa do comprador').item.json.telefone).replace(/\\D/g, '') }}", "type": "string" },
+            { "id": "e0000000-0000-4000-8000-000000000002", "name": "primeiroNome", "value": "={{ String($('Casa do comprador').item.json.comprador || '').trim().split(/\\s+/)[0].toLowerCase().replace(/^./, function (c) { return c.toUpperCase(); }) }}", "type": "string" },
+            { "id": "e0000000-0000-4000-8000-000000000003", "name": "casa", "value": "={{ $('Casa do comprador').item.json.unidade }} · {{ $('Casa do comprador').item.json.empreendimento }}", "type": "string" },
+            { "id": "e0000000-0000-4000-8000-000000000004", "name": "vencimento", "value": "={{ String($('Webhook').item.json.body.record.data_vencimento || '').slice(0, 10).split('-').reverse().join('/') }}", "type": "string" },
+            { "id": "e0000000-0000-4000-8000-000000000005", "name": "valor", "value": "={{ 'R$ ' + (Number($('Webhook').item.json.body.record.parcela_corrigida) > 0 ? Number($('Webhook').item.json.body.record.parcela_corrigida) : (Number($('Webhook').item.json.body.record.parcela_construtora) || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}", "type": "string" },
+            { "id": "e0000000-0000-4000-8000-000000000006", "name": "linkPdf", "value": "={{ $('Configuração').item.json.supabaseUrl }}/storage/v1{{ $json.signedURL }}&download=Boleto.pdf", "type": "string" },
+            { "id": "e0000000-0000-4000-8000-000000000007", "name": "nomeArquivo", "value": "=Boleto-{{ String($('Webhook').item.json.body.record.data_vencimento || '').slice(0, 10).split('-').reverse().join('-') }}.pdf", "type": "string" },
+            { "id": "e0000000-0000-4000-8000-000000000008", "name": "parcelaId", "value": "={{ $('Webhook').item.json.body.record.id }}", "type": "number" }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000010",
+      "name": "Mensagem",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1000, 40]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Configuração').item.json.phoneNumberId }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  messaging_product: 'whatsapp',\n  to: $json.telefone,\n  type: 'template',\n  template: {\n    name: $('Configuração').item.json.template,\n    language: { code: $('Configuração').item.json.idioma },\n    components: [\n      { type: 'header', parameters: [ { type: 'document', document: { link: $json.linkPdf, filename: $json.nomeArquivo } } ] },\n      { type: 'body', parameters: [\n        { type: 'text', text: $json.primeiroNome },\n        { type: 'text', text: $json.casa },\n        { type: 'text', text: $json.vencimento },\n        { type: 'text', text: $json.valor }\n      ] }\n    ]\n  }\n}) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000011",
+      "name": "WhatsApp: enviar o boleto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1220, 40],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Configuração').item.json.supabaseUrl }}/rest/v1/parcelas",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id", "value": "=eq.{{ $('Mensagem').item.json.parcelaId }}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ boleto_enviado_em: $now.toISO() }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000012",
+      "name": "Marcar enviado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1460, -40]
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-0000-4000-8000-000000000013",
+      "name": "Não enviado: ver o erro",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1460, 160]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [ [ { "node": "Configuração", "type": "main", "index": 0 } ] ] },
+    "Configuração": { "main": [ [ { "node": "Boleto novo?", "type": "main", "index": 0 } ] ] },
+    "Boleto novo?": { "main": [
+      [ { "node": "Casa do comprador", "type": "main", "index": 0 } ],
+      [ { "node": "Sem boleto novo", "type": "main", "index": 0 } ]
+    ] },
+    "Casa do comprador": { "main": [ [ { "node": "Tem telefone?", "type": "main", "index": 0 } ] ] },
+    "Tem telefone?": { "main": [
+      [ { "node": "Link do PDF (7 dias)", "type": "main", "index": 0 } ],
+      [ { "node": "Casa sem telefone", "type": "main", "index": 0 } ]
+    ] },
+    "Link do PDF (7 dias)": { "main": [ [ { "node": "Mensagem", "type": "main", "index": 0 } ] ] },
+    "Mensagem": { "main": [ [ { "node": "WhatsApp: enviar o boleto", "type": "main", "index": 0 } ] ] },
+    "WhatsApp: enviar o boleto": { "main": [
+      [ { "node": "Marcar enviado", "type": "main", "index": 0 } ],
+      [ { "node": "Não enviado: ver o erro", "type": "main", "index": 0 } ]
+    ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "active": false
+}
