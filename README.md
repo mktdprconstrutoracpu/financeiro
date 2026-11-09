@@ -117,6 +117,19 @@ nao aprovado, token vencido), a execucao termina em "Nao enviado: ver o erro"
 e a parcela fica sem o selo. Para mandar de novo, tire o PDF e anexe outra
 vez.
 
+### Lembrete no dia seguinte ao vencimento
+
+Um segundo fluxo, `n8n/boleto-vencido.json`, roda todo dia as 9h (horario de
+Fortaleza): busca as parcelas que venceram ontem e seguem sem pagamento, com
+boleto anexado e casa com WhatsApp, manda o modelo `boleto_vencido` com o
+mesmo PDF e grava `parcelas.lembrete_vencido_em` (`sql/004_lembrete_vencido.sql`);
+a parcela ganha o selo **Cobrado**. Janela de seguranca: so parcelas vencidas
+entre 1 e 7 dias, entao parcelas antigas nunca recebem cobranca em massa.
+Parcela sem boleto anexado nao recebe lembrete (nao ha PDF para mandar).
+Se a equipe marcou **Pago** antes das 9h, nao manda. Usa as mesmas tres
+credenciais do primeiro fluxo. Para ver quem receberia hoje sem esperar as
+9h: abra o no "Parcelas vencidas ontem" e clique em Execute step.
+
 ## Onde esta no codigo
 
 Tudo em `index.html`. O banco em `sql/001_financeiro.sql`. A leitura da

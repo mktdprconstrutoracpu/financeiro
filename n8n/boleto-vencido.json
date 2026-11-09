@@ -1,0 +1,188 @@
+{
+  "name": "DPR Financeiro: parcela vencida ontem -> lembrete no WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Parcela vencida ontem -> lembrete no WhatsApp\n\n**O que faz:** todo dia as 9h (horario de Fortaleza) busca no banco da DPR as parcelas que venceram ONTEM e continuam sem pagamento, com boleto anexado, casa com WhatsApp e ainda sem lembrete (`parcelas.lembrete_vencido_em` nulo). Para cada uma: assina o PDF por 7 dias, manda o modelo `boleto_vencido` pela API da Meta com o PDF no cabecalho e grava `lembrete_vencido_em` (o Financeiro mostra o selo Cobrado).\n\n**Janela de seguranca:** so parcelas vencidas entre 1 e 7 dias. O que venceu ha mais tempo nunca entra, entao nao ha cobranca em massa de parcelas antigas.\n\n**Credenciais:** as MESMAS tres do fluxo \"boleto anexado\" (Supabase DPR nos nos do Supabase; Meta DPR Avisos no no do WhatsApp). Confira cada no azul depois de importar.\n\n**No no Configuracao:** `phoneNumberId` (mesmo do outro fluxo), `template` = `boleto_vencido`, `diasJanela` = 7.\n\n**Modelo na Meta:** nome `boleto_vencido`, categoria Utilidade, idioma pt_BR, cabecalho Documento, corpo:\n\n_Ola, {{1}}. A parcela da sua {{2}}, com vencimento em {{3}}, no valor de {{4}}, ainda nao consta como paga. Segue o boleto para facilitar. Se o pagamento ja foi feito, desconsidere esta mensagem. DPR Construtora_\n\n**Testar sem esperar as 9h:** abra o no \"Parcelas vencidas ontem\" e clique em Execute step; ele mostra quem receberia hoje. Depois \"Execute workflow\" manda de verdade.",
+        "height": 760,
+        "width": 520
+      },
+      "id": "b1b2c3d4-0000-4000-8000-000000000001",
+      "name": "Leia primeiro",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-900, -160]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 9 * * *" }
+          ]
+        }
+      },
+      "id": "b1b2c3d4-0000-4000-8000-000000000002",
+      "name": "Todo dia 9h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-320, 160]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "c1000000-0000-4000-8000-000000000001", "name": "supabaseUrl", "value": "https://roashkfdjgsweuftqhyx.supabase.co", "type": "string" },
+            { "id": "c1000000-0000-4000-8000-000000000002", "name": "phoneNumberId", "value": "1425282740660657", "type": "string" },
+            { "id": "c1000000-0000-4000-8000-000000000003", "name": "template", "value": "boleto_vencido", "type": "string" },
+            { "id": "c1000000-0000-4000-8000-000000000004", "name": "idioma", "value": "pt_BR", "type": "string" },
+            { "id": "c1000000-0000-4000-8000-000000000005", "name": "linkDias", "value": 7, "type": "number" },
+            { "id": "c1000000-0000-4000-8000-000000000006", "name": "diasJanela", "value": 7, "type": "number" },
+            { "id": "c1000000-0000-4000-8000-000000000007", "name": "ontem", "value": "={{ $now.setZone('America/Fortaleza').minus({ days: 1 }).toFormat('yyyy-MM-dd') }}", "type": "string" },
+            { "id": "c1000000-0000-4000-8000-000000000008", "name": "inicioJanela", "value": "={{ $now.setZone('America/Fortaleza').minus({ days: 7 }).toFormat('yyyy-MM-dd') }}", "type": "string" }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "b1b2c3d4-0000-4000-8000-000000000003",
+      "name": "Configuração",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-100, 160]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.supabaseUrl }}/rest/v1/parcelas",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "select", "value": "id,unidade_id,ordem,data_vencimento,parcela_corrigida,parcela_construtora,boleto_caminho,unidades!inner(empreendimento,unidade,comprador,telefone)" },
+            { "name": "pago", "value": "eq.false" },
+            { "name": "boleto_caminho", "value": "not.is.null" },
+            { "name": "lembrete_vencido_em", "value": "is.null" },
+            { "name": "and", "value": "=(data_vencimento.gte.{{ $json.inicioJanela }},data_vencimento.lte.{{ $json.ontem }})" },
+            { "name": "unidades.telefone", "value": "not.is.null" },
+            { "name": "order", "value": "data_vencimento,unidade_id,ordem" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1b2c3d4-0000-4000-8000-000000000004",
+      "name": "Parcelas vencidas ontem",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [120, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuração').item.json.supabaseUrl }}/storage/v1/object/sign/boletos/{{ $json.boleto_caminho }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ expiresIn: Number($('Configuração').item.json.linkDias) * 86400 }) }}",
+        "options": {}
+      },
+      "id": "b1b2c3d4-0000-4000-8000-000000000005",
+      "name": "Link do PDF (7 dias)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [340, 160]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "e1000000-0000-4000-8000-000000000001", "name": "telefone", "value": "={{ String($('Parcelas vencidas ontem').item.json.unidades.telefone).replace(/\\D/g, '') }}", "type": "string" },
+            { "id": "e1000000-0000-4000-8000-000000000002", "name": "primeiroNome", "value": "={{ String($('Parcelas vencidas ontem').item.json.unidades.comprador || '').trim().split(/\\s+/)[0].toLowerCase().replace(/^./, function (c) { return c.toUpperCase(); }) }}", "type": "string" },
+            { "id": "e1000000-0000-4000-8000-000000000003", "name": "casa", "value": "={{ $('Parcelas vencidas ontem').item.json.unidades.unidade }} · {{ $('Parcelas vencidas ontem').item.json.unidades.empreendimento }}", "type": "string" },
+            { "id": "e1000000-0000-4000-8000-000000000004", "name": "vencimento", "value": "={{ String($('Parcelas vencidas ontem').item.json.data_vencimento || '').slice(0, 10).split('-').reverse().join('/') }}", "type": "string" },
+            { "id": "e1000000-0000-4000-8000-000000000005", "name": "valor", "value": "={{ 'R$ ' + (Number($('Parcelas vencidas ontem').item.json.parcela_corrigida) > 0 ? Number($('Parcelas vencidas ontem').item.json.parcela_corrigida) : (Number($('Parcelas vencidas ontem').item.json.parcela_construtora) || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}", "type": "string" },
+            { "id": "e1000000-0000-4000-8000-000000000006", "name": "linkPdf", "value": "={{ $('Configuração').item.json.supabaseUrl }}/storage/v1{{ $json.signedURL }}&download=Boleto.pdf", "type": "string" },
+            { "id": "e1000000-0000-4000-8000-000000000007", "name": "nomeArquivo", "value": "=Boleto-{{ String($('Parcelas vencidas ontem').item.json.data_vencimento || '').slice(0, 10).split('-').reverse().join('-') }}.pdf", "type": "string" },
+            { "id": "e1000000-0000-4000-8000-000000000008", "name": "parcelaId", "value": "={{ $('Parcelas vencidas ontem').item.json.id }}", "type": "number" }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "b1b2c3d4-0000-4000-8000-000000000006",
+      "name": "Mensagem",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [560, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Configuração').item.json.phoneNumberId }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  messaging_product: 'whatsapp',\n  to: $json.telefone,\n  type: 'template',\n  template: {\n    name: $('Configuração').item.json.template,\n    language: { code: $('Configuração').item.json.idioma },\n    components: [\n      { type: 'header', parameters: [ { type: 'document', document: { link: $json.linkPdf, filename: $json.nomeArquivo } } ] },\n      { type: 'body', parameters: [\n        { type: 'text', text: $json.primeiroNome },\n        { type: 'text', text: $json.casa },\n        { type: 'text', text: $json.vencimento },\n        { type: 'text', text: $json.valor }\n      ] }\n    ]\n  }\n}) }}",
+        "options": {}
+      },
+      "id": "b1b2c3d4-0000-4000-8000-000000000007",
+      "name": "WhatsApp: lembrete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 160],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Configuração').item.json.supabaseUrl }}/rest/v1/parcelas",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id", "value": "=eq.{{ $('Mensagem').item.json.parcelaId }}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lembrete_vencido_em: $now.toISO() }) }}",
+        "options": {}
+      },
+      "id": "b1b2c3d4-0000-4000-8000-000000000008",
+      "name": "Marcar cobrado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1020, 80]
+    },
+    {
+      "parameters": {},
+      "id": "b1b2c3d4-0000-4000-8000-000000000009",
+      "name": "Não enviado: ver o erro",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1020, 280]
+    }
+  ],
+  "connections": {
+    "Todo dia 9h": { "main": [ [ { "node": "Configuração", "type": "main", "index": 0 } ] ] },
+    "Configuração": { "main": [ [ { "node": "Parcelas vencidas ontem", "type": "main", "index": 0 } ] ] },
+    "Parcelas vencidas ontem": { "main": [ [ { "node": "Link do PDF (7 dias)", "type": "main", "index": 0 } ] ] },
+    "Link do PDF (7 dias)": { "main": [ [ { "node": "Mensagem", "type": "main", "index": 0 } ] ] },
+    "Mensagem": { "main": [ [ { "node": "WhatsApp: lembrete", "type": "main", "index": 0 } ] ] },
+    "WhatsApp: lembrete": { "main": [
+      [ { "node": "Marcar cobrado", "type": "main", "index": 0 } ],
+      [ { "node": "Não enviado: ver o erro", "type": "main", "index": 0 } ]
+    ] }
+  },
+  "settings": { "executionOrder": "v1", "timezone": "America/Fortaleza" },
+  "pinData": {},
+  "active": false
+}

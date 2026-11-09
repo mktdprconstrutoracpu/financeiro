@@ -14,7 +14,9 @@
      (09/11/2026) O boleto vai para o WhatsApp do cliente: a ficha da casa ganhou
      o campo "WhatsApp do comprador" (unidades.telefone, so numeros com o 55) e,
      quando o n8n manda o PDF, grava parcelas.boleto_enviado_em; a linha da
-     parcela mostra o selo "Enviado" (sql/002_whatsapp.sql).
+     parcela mostra o selo "Enviado" (sql/002_whatsapp.sql). Um segundo fluxo
+     cobra no dia seguinte ao vencimento e grava parcelas.lembrete_vencido_em,
+     que vira o selo "Cobrado" (sql/004_lembrete_vencido.sql).
      ============================================================================ -->
 <link rel="icon" href="logo-dpr-transparente.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -179,7 +181,9 @@
   .boleto-tem .bt.mini { min-height: 28px; padding: 0 10px; font-size: 12px; }
   .boleto-enviado { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--verde); white-space: nowrap; }
   .boleto-enviado svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .boleto-enviado.cobrado { color: #b45309; }
   .parcelas td.c-boleto:has(.boleto-enviado) { width: 232px; }
+  .parcelas td.c-boleto:has(.boleto-enviado.cobrado) { width: 300px; }
   .anexar { position: relative; display: inline-flex; }
   .anexar input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
   .anexar .bt.mini { min-height: 28px; padding: 0 10px; font-size: 12px; border-style: dashed; }
@@ -699,12 +703,12 @@
     });
   }
   function linhaDoBanco(p) {
-    const l = { id: p.id, data_vencimento: p.data_vencimento || null, tipo_parcela: p.tipo_parcela || '', pago: !!p.pago, saldo_devedor: p.saldo_devedor, boleto_caminho: p.boleto_caminho || null, boleto_enviado_em: p.boleto_enviado_em || null };
+    const l = { id: p.id, data_vencimento: p.data_vencimento || null, tipo_parcela: p.tipo_parcela || '', pago: !!p.pago, saldo_devedor: p.saldo_devedor, boleto_caminho: p.boleto_caminho || null, boleto_enviado_em: p.boleto_enviado_em || null, lembrete_vencido_em: p.lembrete_vencido_em || null };
     CAMPOS.forEach((c) => { l[c.c] = p[c.c]; });
     return l;
   }
   function linhaNova(base) {
-    const l = { id: null, data_vencimento: null, tipo_parcela: 'MENSAIS', pago: false, saldo_devedor: null, boleto_caminho: null, boleto_enviado_em: null };
+    const l = { id: null, data_vencimento: null, tipo_parcela: 'MENSAIS', pago: false, saldo_devedor: null, boleto_caminho: null, boleto_enviado_em: null, lembrete_vencido_em: null };
     CAMPOS.forEach((c) => { l[c.c] = null; });
     if (base) {
       l.tipo_parcela = base.tipo_parcela === 'ATO' ? 'MENSAIS' : (base.tipo_parcela || 'MENSAIS');
@@ -773,6 +777,7 @@
       const boleto = l.boleto_caminho
         ? '<span class="boleto-tem"><button type="button" class="bt mini" data-boleto="abrir" data-l="' + i + '">Abrir PDF</button>'
           + (l.boleto_enviado_em ? '<span class="boleto-enviado" title="Enviado no WhatsApp do comprador em ' + esc(horaBR(l.boleto_enviado_em)) + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5L20 7"/></svg>Enviado ' + esc(horaBR(l.boleto_enviado_em)) + '</span>' : '')
+          + (l.lembrete_vencido_em ? '<span class="boleto-enviado cobrado" title="Lembrete de parcela vencida mandado no WhatsApp em ' + esc(horaBR(l.lembrete_vencido_em)) + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v6M12 16.5v.5M4 19h16L12 5z"/></svg>Cobrado ' + esc(horaBR(l.lembrete_vencido_em)) + '</span>' : '')
           + '<button type="button" class="bt-icone" title="Tirar o boleto" aria-label="Tirar o boleto" data-boleto="tirar" data-l="' + i + '"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>'
         : '<span class="anexar' + (estado.casaId && l.id ? '' : ' desligado') + '" title="' + (estado.casaId && l.id ? 'Anexar o boleto em PDF' : 'Salve a casa antes de anexar') + '"><button type="button" class="bt mini leve" tabindex="-1">Anexar PDF</button><input type="file" accept="application/pdf,.pdf" data-boleto="anexar" data-l="' + i + '" aria-label="Anexar o boleto da parcela ' + (i + 1) + '"></span>';
       return '<tr class="' + s + '" data-l="' + i + '">'
@@ -967,11 +972,12 @@
     sb.storage.from('boletos').upload(caminho, arquivo, { contentType: 'application/pdf', upsert: false }).then((r) => {
       if (r.error) throw r.error;
       const antigo = l.boleto_caminho;
-      // boleto_enviado_em volta a nulo: e um PDF novo, o n8n manda de novo e o selo "Enviado" some ate la
-      return sb.from('parcelas').update({ boleto_caminho: caminho, boleto_enviado_em: null, atualizado_em: new Date().toISOString() }).eq('id', l.id).then((ru) => {
+      // boleto_enviado_em e lembrete_vencido_em voltam a nulo: e um PDF novo, o n8n manda de novo e os selos somem ate la
+      return sb.from('parcelas').update({ boleto_caminho: caminho, boleto_enviado_em: null, lembrete_vencido_em: null, atualizado_em: new Date().toISOString() }).eq('id', l.id).then((ru) => {
         if (ru.error) throw ru.error;
         l.boleto_caminho = caminho;
         l.boleto_enviado_em = null;
+        l.lembrete_vencido_em = null;
         if (antigo) sb.storage.from('boletos').remove([antigo]);
         renderizarParcelas();
         // quem manda e o n8n, lendo o telefone que esta GRAVADO na casa; por isso o aviso olha estado.casa e nao o campo
@@ -994,10 +1000,11 @@
     if (!l || !l.boleto_caminho) return;
     if (!window.confirm('Tirar o boleto da parcela ' + (i + 1) + '?')) return;
     const caminho = l.boleto_caminho;
-    sb.storage.from('boletos').remove([caminho]).then(() => sb.from('parcelas').update({ boleto_caminho: null, boleto_enviado_em: null, atualizado_em: new Date().toISOString() }).eq('id', l.id)).then((r) => {
+    sb.storage.from('boletos').remove([caminho]).then(() => sb.from('parcelas').update({ boleto_caminho: null, boleto_enviado_em: null, lembrete_vencido_em: null, atualizado_em: new Date().toISOString() }).eq('id', l.id)).then((r) => {
       if (r.error) throw r.error;
       l.boleto_caminho = null;
       l.boleto_enviado_em = null;
+      l.lembrete_vencido_em = null;
       renderizarParcelas();
       avisar('Boleto removido.', 'ok');
     }).catch((e) => avisar(mensagemDeErro(e), 'erro'));
