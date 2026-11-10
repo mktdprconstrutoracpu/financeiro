@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Boleto anexado no Financeiro -> WhatsApp do cliente\n\n**O que faz:** o banco da DPR (gatilho `parcelas_boleto_para_n8n`, `sql/003_aviso_n8n.sql`) chama este webhook quando um boleto novo e anexado. O fluxo busca a casa e o telefone do comprador, assina o PDF por 7 dias, manda pela API oficial da Meta com o PDF no cabecalho e grava `parcelas.boleto_enviado_em` (o Financeiro mostra o selo Enviado).\n\n**Credenciais a criar (uma vez):**\n1. **Header Auth** para o no Webhook: nome do cabecalho `x-segredo`, valor = o mesmo segredo gravado em `fin_config.n8n_boleto_segredo`.\n2. **Supabase API** para os tres nos do Supabase: host `https://roashkfdjgsweuftqhyx.supabase.co`, chave = **service_role** (Settings > API). So aqui, nunca no site.\n3. **Header Auth** para o no do WhatsApp: cabecalho `Authorization`, valor `Bearer <token permanente da Meta>`.\n\n**No no Configuracao:** troque `phoneNumberId` pelo ID do numero real quando sair do numero de teste.\n\n**Modelo na Meta** (WhatsApp Manager > Modelos): nome `boleto_anexado`, categoria Utilidade, idioma pt_BR, cabecalho Documento, corpo:\n\n_Ola, {{1}}! Segue o boleto da sua parcela da {{2}}, com vencimento em {{3}}, no valor de {{4}}. O PDF esta anexado nesta mensagem. Qualquer duvida, e so responder aqui. DPR Construtora_\n\nDepois de aprovado, ative o fluxo e grave a URL de producao do Webhook em `fin_config.n8n_boleto_url`.",
+        "content": "## Boleto anexado no Financeiro -> WhatsApp do cliente\n\n**O que faz:** o banco da DPR (gatilho `parcelas_boleto_para_n8n`, `sql/003_aviso_n8n.sql`) chama este webhook quando um boleto novo e anexado. O fluxo busca a casa e o telefone do comprador, assina o PDF por 7 dias, manda pela API oficial da Meta com o PDF no cabecalho e grava `parcelas.boleto_enviado_em` (o Financeiro mostra o selo Enviado).\n\n**Credenciais a criar (uma vez):**\n1. **Header Auth** para o no Webhook: nome do cabecalho `x-segredo`, valor = o mesmo segredo gravado em `fin_config.n8n_boleto_segredo`.\n2. **Supabase API** para os tres nos do Supabase: host `https://roashkfdjgsweuftqhyx.supabase.co`, chave = **service_role** (Settings > API). So aqui, nunca no site.\n3. **Header Auth** para o no do WhatsApp: cabecalho `Authorization`, valor `Bearer <token permanente da Meta>`.\n\n**No no Configuracao:** troque `phoneNumberId` pelo ID do numero real quando sair do numero de teste.\n\n**Modelo na Meta** (WhatsApp Manager > Modelos): nome `boleto_anexado`, categoria Utilidade, idioma pt_BR, cabecalho Documento, corpo:\n\n_Ola, {{1}}! Segue o boleto da sua parcela da {{2}}, com vencimento em {{3}}, no valor de {{4}}. O PDF esta anexado nesta mensagem. Qualquer duvida, e so responder aqui. DPR Construtora_\n\nDepois de aprovado, ative o fluxo e grave a URL de producao do Webhook em `fin_config.n8n_boleto_url`.\n\n**Plano B:** se o modelo falhar (em analise, rejeitado), o fluxo tenta mandar o PDF como mensagem comum. A Meta so aceita isso se o cliente escreveu para o numero nas ultimas 24 horas. Para testar antes da aprovacao: mande um \"oi\" do seu celular para o numero de teste e depois anexe o boleto.",
         "height": 720,
         "width": 520
       },
@@ -196,6 +196,26 @@
     },
     {
       "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Configuração').item.json.phoneNumberId }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  messaging_product: 'whatsapp',\n  to: $('Mensagem').item.json.telefone,\n  type: 'document',\n  document: {\n    link: $('Mensagem').item.json.linkPdf,\n    filename: $('Mensagem').item.json.nomeArquivo,\n    caption: 'Olá, ' + $('Mensagem').item.json.primeiroNome + '! Segue o boleto da sua parcela da ' + $('Mensagem').item.json.casa + ', com vencimento em ' + $('Mensagem').item.json.vencimento + ', no valor de ' + $('Mensagem').item.json.valor + '. Qualquer dúvida, é só responder aqui. DPR Construtora'\n  }\n}) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000014",
+      "name": "Plano B: mensagem livre (janela 24h)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1460, 160],
+      "onError": "continueErrorOutput",
+      "notes": "Roda so quando o modelo falhou (em analise, rejeitado, token sem o modelo). A Meta aceita mensagem livre apenas se o cliente escreveu para este numero nas ultimas 24 horas; fora disso falha e cai em Nao enviado.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
         "method": "PATCH",
         "url": "={{ $('Configuração').item.json.supabaseUrl }}/rest/v1/parcelas",
         "authentication": "predefinedCredentialType",
@@ -221,7 +241,7 @@
       "name": "Marcar enviado",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1460, -40]
+      "position": [1720, -40]
     },
     {
       "parameters": {},
@@ -229,7 +249,7 @@
       "name": "Não enviado: ver o erro",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1460, 160]
+      "position": [1720, 260]
     }
   ],
   "connections": {
@@ -247,6 +267,10 @@
     "Link do PDF (7 dias)": { "main": [ [ { "node": "Mensagem", "type": "main", "index": 0 } ] ] },
     "Mensagem": { "main": [ [ { "node": "WhatsApp: enviar o boleto", "type": "main", "index": 0 } ] ] },
     "WhatsApp: enviar o boleto": { "main": [
+      [ { "node": "Marcar enviado", "type": "main", "index": 0 } ],
+      [ { "node": "Plano B: mensagem livre (janela 24h)", "type": "main", "index": 0 } ]
+    ] },
+    "Plano B: mensagem livre (janela 24h)": { "main": [
       [ { "node": "Marcar enviado", "type": "main", "index": 0 } ],
       [ { "node": "Não enviado: ver o erro", "type": "main", "index": 0 } ]
     ] }
