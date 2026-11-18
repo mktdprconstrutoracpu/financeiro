@@ -350,8 +350,11 @@
           <div class="campo larga"><label for="fComprador">Comprador</label><input type="text" id="fComprador" placeholder="Nome completo, como no contrato" autocomplete="off" required><span class="dica">Nome como no contrato.</span></div>
           <div class="campo"><label for="fTelefone">WhatsApp do comprador</label><input type="tel" id="fTelefone" inputmode="tel" placeholder="(85) 99999-9999" autocomplete="off"><span class="dica">Para onde o boleto vai assim que for anexado.</span></div>
           <!-- (18/11/2026) o acesso a Central passa a ser pelo e-mail, confirmado por codigo -->
-          <div class="campo"><label for="fEmailComprador">E-mail do comprador</label><input type="email" id="fEmailComprador" placeholder="nome@exemplo.com" autocomplete="off"><span class="dica">Libera a Central: o cliente cria a conta com este e-mail e confirma com o código.</span></div>
+          <!-- (18/11/2026, tarde) o login da Central passa a ser e-mail + CPF (o CPF e a senha) -->
+          <div class="campo"><label for="fEmailComprador">E-mail do comprador</label><input type="email" id="fEmailComprador" placeholder="nome@exemplo.com" autocomplete="off"><span class="dica">Login da Central: o cliente entra com este e-mail e o CPF.</span></div>
+          <div class="campo"><label for="fCpfComprador">CPF do comprador</label><input type="text" id="fCpfComprador" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off" maxlength="14"><span class="dica">É a senha do comprador na Central.</span></div>
           <div class="campo"><label for="fEmailConjuge">E-mail do cônjuge (opcional)</label><input type="email" id="fEmailConjuge" placeholder="nome@exemplo.com" autocomplete="off"><span class="dica">Também libera a casa na Central.</span></div>
+          <div class="campo"><label for="fCpfConjuge">CPF do cônjuge (opcional)</label><input type="text" id="fCpfConjuge" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off" maxlength="14"><span class="dica">A senha do cônjuge na Central.</span></div>
           <div class="campo"><label for="fAssinatura">Data de assinatura</label><input type="date" id="fAssinatura"></div>
           <div class="campo"><label for="fValorVenda">Valor da venda</label><input type="text" id="fValorVenda" class="dinheiro" inputmode="decimal" placeholder="0,00"></div>
           <div class="campo"><label for="fFinanciamento">Financiamento proposto</label><input type="text" id="fFinanciamento" class="dinheiro" inputmode="decimal" placeholder="0,00"></div>
@@ -466,6 +469,7 @@
     if (/row-level security|permission denied|violates/i.test(m)) return 'Você não tem permissão para fazer isso. Peça a liberação no financeiro.';
     if (/Bucket not found/i.test(m)) return 'O espaço dos boletos ainda não foi criado no Supabase (rode o sql/001_financeiro.sql).';
     if (/email_comprador|email_conjuge/i.test(m)) return 'Os campos de e-mail ainda não existem no banco: rode o sql/003_acesso_por_email.sql da Central no Supabase.';
+    if (/cpf_comprador|cpf_conjuge/i.test(m)) return 'Os campos de CPF ainda não existem no banco: rode o sql/004_login_por_cpf.sql da Central no Supabase.';
     if (/Payload too large|too large|exceeded/i.test(m)) return 'O arquivo é grande demais.';
     if (/Failed to fetch|NetworkError|network/i.test(m)) return 'Sem conexão. Tente de novo.';
     return m;
@@ -630,12 +634,20 @@
   // (18/11) os e-mails entram na leitura: a ficha abre a partir desta lista, e sem eles salvar apagaria o e-mail.
   // Enquanto o sql/003 da Central nao roda, a coluna nao existe: le sem os e-mails e trava a gravacao deles.
   const COLS_CASA = 'id, empreendimento, unidade, comprador, telefone, status_contrato, data_assinatura, valor_venda, financiamento_proposto, fgts_proposto, saldo_devedor_atual, gerida_no_financeiro, atualizado_em';
-  estado.temEmail = true;
+  // (18/11, tarde) o mesmo para os CPFs (sql/004): sem a coluna, le sem eles e trava a gravacao deles
+  estado.temEmail = true; estado.temCpf = true;
   function lerUnidades() {
     const q = (cols) => sb.from('unidades').select(cols).order('empreendimento').order('unidade');
-    return q(COLS_CASA + ', email_comprador, email_conjuge').then((r) => {
-      if (r.error && /email_comprador|email_conjuge/i.test(r.error.message || '')) { estado.temEmail = false; return q(COLS_CASA); }
-      estado.temEmail = !r.error;
+    const semEmail = () => q(COLS_CASA).then((r) => { estado.temEmail = false; estado.temCpf = false; return r; });
+    const comEmail = () => q(COLS_CASA + ', email_comprador, email_conjuge').then((r) => {
+      if (r.error && /email_comprador|email_conjuge/i.test(r.error.message || '')) return semEmail();
+      estado.temEmail = !r.error; estado.temCpf = false;
+      return r;
+    });
+    return q(COLS_CASA + ', email_comprador, email_conjuge, cpf_comprador, cpf_conjuge').then((r) => {
+      if (r.error && /email_comprador|email_conjuge/i.test(r.error.message || '')) return semEmail();
+      if (r.error && /cpf_comprador|cpf_conjuge/i.test(r.error.message || '')) return comEmail();
+      estado.temEmail = !r.error; estado.temCpf = !r.error;
       return r;
     });
   }
@@ -702,7 +714,7 @@
     $('paginaCasas').hidden = true; $('paginaCasa').hidden = false; $('navCasas').classList.remove('ativo');
     estado.casaId = id; estado.mudou = false; estado.linhas = [];
     if (!id) {
-      estado.casa = { empreendimento: '', unidade: '', comprador: '', telefone: null, email_comprador: null, email_conjuge: null, status_contrato: 'ativo', data_assinatura: null, valor_venda: null, financiamento_proposto: null, fgts_proposto: null, saldo_devedor_atual: null };
+      estado.casa = { empreendimento: '', unidade: '', comprador: '', telefone: null, email_comprador: null, email_conjuge: null, cpf_comprador: null, cpf_conjuge: null, status_contrato: 'ativo', data_assinatura: null, valor_venda: null, financiamento_proposto: null, fgts_proposto: null, saldo_devedor_atual: null };
       preencherFicha(); renderizarParcelas(); atualizarEstado();
       $('fEmpreendimento').focus();
       return;
@@ -744,6 +756,8 @@
     $('fTelefone').value = telefoneBR(c.telefone);
     $('fEmailComprador').value = c.email_comprador || '';
     $('fEmailConjuge').value = c.email_conjuge || '';
+    $('fCpfComprador').value = cpfBR(c.cpf_comprador);
+    $('fCpfConjuge').value = cpfBR(c.cpf_conjuge);
     $('fStatus').value = c.status_contrato || 'ativo';
     $('fAssinatura').value = c.data_assinatura || '';
     $('fValorVenda').value = dinheiro(c.valor_venda);
@@ -755,6 +769,16 @@
   // (18/11) e-mail em minusculas e sem espacos; vazio vira null
   function emailLimpo(v) { const s = String(v || '').trim().toLowerCase(); return s || null; }
   function emailValido(v) { return !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+  // (18/11, tarde) CPF: aceita com ou sem pontos, guarda so os 11 numeros; confere os digitos verificadores
+  function cpfNumeros(v) { const s = String(v || '').replace(/\D/g, ''); return s || null; }
+  function cpfValido(s) {
+    if (!s) return true;
+    if (!/^\d{11}$/.test(s) || /^(\d)\1{10}$/.test(s)) return false;
+    const dv = (n) => { let t = 0; for (let i = 0; i < n; i++) t += Number(s[i]) * (n + 1 - i); const r = (t * 10) % 11; return r === 10 ? 0 : r; };
+    return dv(9) === Number(s[9]) && dv(10) === Number(s[10]);
+  }
+  function cpfBR(s) { const d = String(s || '').replace(/\D/g, ''); return d.length === 11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : (s || ''); }
+  ['fCpfComprador', 'fCpfConjuge'].forEach((id) => $(id).addEventListener('blur', () => { const d = cpfNumeros($(id).value); if (d && cpfValido(d)) $(id).value = cpfBR(d); }));
   function lerFicha() {
     return {
       empreendimento: $('fEmpreendimento').value.trim().toUpperCase(),
@@ -763,6 +787,8 @@
       telefone: telefoneNumeros($('fTelefone').value) || null,
       email_comprador: emailLimpo($('fEmailComprador').value),
       email_conjuge: emailLimpo($('fEmailConjuge').value),
+      cpf_comprador: cpfNumeros($('fCpfComprador').value),
+      cpf_conjuge: cpfNumeros($('fCpfConjuge').value),
       status_contrato: $('fStatus').value,
       data_assinatura: dataISO($('fAssinatura').value),
       valor_venda: numero($('fValorVenda').value),
@@ -935,6 +961,14 @@
     }
     if (!emailValido(casa.email_comprador)) { avisar('Confira o e-mail do comprador, como nome@exemplo.com.', 'erro'); $('fEmailComprador').focus(); return; }
     if (!emailValido(casa.email_conjuge)) { avisar('Confira o e-mail do cônjuge, como nome@exemplo.com.', 'erro'); $('fEmailConjuge').focus(); return; }
+    if (!estado.temCpf) {
+      if (casa.cpf_comprador || casa.cpf_conjuge) { avisar('Os campos de CPF ainda não existem no banco: rode o sql/004_login_por_cpf.sql da Central no Supabase.', 'erro'); return; }
+      delete casa.cpf_comprador; delete casa.cpf_conjuge;
+    }
+    if (!cpfValido(casa.cpf_comprador)) { $('fCpfComprador').focus(); avisar('Confira o CPF do comprador: os números não fecham.', 'erro'); return; }
+    if (!cpfValido(casa.cpf_conjuge)) { $('fCpfConjuge').focus(); avisar('Confira o CPF do cônjuge: os números não fecham.', 'erro'); return; }
+    if (casa.cpf_comprador && !casa.email_comprador) { $('fEmailComprador').focus(); avisar('Com o CPF do comprador, preencha também o e-mail: os dois juntos são o login na Central.', 'erro'); return; }
+    if (casa.cpf_conjuge && !casa.email_conjuge) { $('fEmailConjuge').focus(); avisar('Com o CPF do cônjuge, preencha também o e-mail dele.', 'erro'); return; }
     const semData = estado.linhas.findIndex((l) => !l.data_vencimento);
     if (semData >= 0) { avisar('A parcela ' + (semData + 1) + ' está sem data.', 'erro'); return; }
     casa.gerida_no_financeiro = true;
