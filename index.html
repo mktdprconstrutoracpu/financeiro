@@ -141,6 +141,10 @@
   .selo.ativo { background: rgba(46, 125, 50, .12); color: var(--verde); }
   .selo.aguardando_assinatura { background: rgba(230, 150, 0, .14); color: #9a6400; }
   .selo.distrato_aguardando, .selo.distrato_realizado { background: rgba(225, 6, 0, .1); color: var(--accent); }
+  .selo.permuta { background: rgba(40, 90, 170, .1); color: #285aaa; }
+  /* (23/11/2026) aba Distratos */
+  #tabelaDistratos tfoot td { font-weight: 800; color: var(--primary); border-top: 2px solid var(--border); }
+  .obs-planilha { font-size: 12.5px; color: var(--text-light); }
   .selo.financeiro { background: var(--primary); color: var(--white); }
   .selo.atraso { background: rgba(225, 6, 0, .1); color: var(--accent); }
   .vazio { padding: 40px 20px; text-align: center; color: var(--text-light); }
@@ -298,6 +302,7 @@
       <div class="topo-nome">Financeiro<span>DPR Construtora</span></div>
       <nav class="topo-nav" aria-label="Seções">
         <button type="button" data-rota="casas" id="navCasas" class="ativo">Casas</button>
+        <button type="button" data-rota="distratos" id="navDistratos">Distratos</button>
       </nav>
       <div class="topo-usuario">
         <div><strong id="usuarioNome"></strong><span id="usuarioEmail"></span></div>
@@ -322,7 +327,7 @@
       <div class="filtros">
         <div class="campo busca"><label for="buscaCasas">Buscar</label><input type="search" id="buscaCasas" placeholder="Comprador, unidade ou empreendimento" autocomplete="off"></div>
         <div class="campo"><label for="filtroEmp">Empreendimento</label><select id="filtroEmp"><option value="">Todos</option></select></div>
-        <div class="campo"><label for="filtroStatus">Situação</label><select id="filtroStatus"><option value="">Todas</option><option value="ativo">Ativo</option><option value="aguardando_assinatura">Aguardando assinatura</option><option value="distrato_aguardando">Distrato (aguardando)</option><option value="distrato_realizado">Distrato realizado</option></select></div>
+        <div class="campo"><label for="filtroStatus">Situação</label><select id="filtroStatus"><option value="">Todas</option><option value="ativo">Ativo</option><option value="aguardando_assinatura">Aguardando assinatura</option><option value="distrato_aguardando">Distrato (aguardando)</option><option value="distrato_realizado">Distrato realizado</option><option value="permuta">Permuta</option></select></div>
       </div>
       <div class="cartao">
         <table class="tabela" id="tabelaCasas">
@@ -330,6 +335,31 @@
           <tbody id="listaCasas"></tbody>
         </table>
         <div class="vazio" id="casasVazio" hidden>Nenhuma casa ainda. Toque em "Nova casa" ou cole a tabela da planilha.</div>
+      </div>
+    </section>
+
+    <!-- (23/11/2026) DISTRATOS: so as casas com distrato, com o que o cliente pagou -->
+    <section id="paginaDistratos" hidden>
+      <div class="cabeca">
+        <div><span class="eyebrow">Controle financeiro</span><h1>Distratos</h1><p>Só as casas com distrato. "Pago pelo cliente" soma as parcelas marcadas como pagas na ficha (o valor corrigido de cada uma). Toque numa casa para abrir a ficha.</p></div>
+      </div>
+      <div class="resumo">
+        <div class="resumo-item escuro"><span class="rotulo">Distratos</span><strong id="disTotal">0</strong></div>
+        <div class="resumo-item"><span class="rotulo">Realizados</span><strong id="disRealizados">0</strong></div>
+        <div class="resumo-item"><span class="rotulo">Em andamento</span><strong id="disAndamento">0</strong></div>
+        <div class="resumo-item"><span class="rotulo">Pago pelos clientes</span><strong id="disPago">R$ 0,00</strong></div>
+      </div>
+      <div class="filtros">
+        <div class="campo busca"><label for="buscaDistratos">Buscar</label><input type="search" id="buscaDistratos" placeholder="Comprador ou unidade" autocomplete="off"></div>
+        <div class="campo"><label for="filtroDistrato">Situação</label><select id="filtroDistrato"><option value="">Todos</option><option value="distrato_realizado">Distrato realizado</option><option value="distrato_aguardando">Distrato (em andamento)</option></select></div>
+      </div>
+      <div class="cartao">
+        <table class="tabela" id="tabelaDistratos">
+          <thead><tr><th>Unidade</th><th>Comprador</th><th>Situação</th><th>Assinatura</th><th class="num">Valor da venda</th><th class="num">Pago pelo cliente</th><th class="num">Parcelas pagas</th><th>Observação da planilha</th></tr></thead>
+          <tbody id="listaDistratos"></tbody>
+          <tfoot id="totalDistratos"></tfoot>
+        </table>
+        <div class="vazio" id="distratosVazio" hidden>Nenhum distrato com esses filtros.</div>
       </div>
     </section>
 
@@ -346,7 +376,7 @@
         <div class="ficha-grade">
           <div class="campo larga"><label for="fEmpreendimento">Empreendimento</label><input type="text" id="fEmpreendimento" list="listaEmps" placeholder="VILLAGIO CAUCAIA II" autocomplete="off" required><datalist id="listaEmps"></datalist><span class="dica">Igual ao nome usado na Central e no painel de obras.</span></div>
           <div class="campo"><label for="fUnidade">Unidade</label><input type="text" id="fUnidade" placeholder="CASA 03" autocomplete="off" required></div>
-          <div class="campo"><label for="fStatus">Situação do contrato</label><select id="fStatus"><option value="ativo">Ativo</option><option value="aguardando_assinatura">Aguardando assinatura</option><option value="distrato_aguardando">Distrato (aguardando)</option><option value="distrato_realizado">Distrato realizado</option></select></div>
+          <div class="campo"><label for="fStatus">Situação do contrato</label><select id="fStatus"><option value="ativo">Ativo</option><option value="aguardando_assinatura">Aguardando assinatura</option><option value="distrato_aguardando">Distrato (aguardando)</option><option value="distrato_realizado">Distrato realizado</option><option value="permuta">Permuta</option></select></div>
           <div class="campo larga"><label for="fComprador">Comprador</label><input type="text" id="fComprador" placeholder="Nome completo, como no contrato" autocomplete="off" required><span class="dica">Nome como no contrato.</span></div>
           <div class="campo"><label for="fTelefone">WhatsApp do comprador</label><input type="tel" id="fTelefone" inputmode="tel" placeholder="(85) 99999-9999" autocomplete="off"><span class="dica">Para onde o boleto vai assim que for anexado.</span></div>
           <!-- (18/11/2026) o acesso a Central passa a ser pelo e-mail, confirmado por codigo -->
@@ -443,7 +473,7 @@
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const STATUS = { ativo: 'Ativo', aguardando_assinatura: 'Aguardando assinatura', distrato_aguardando: 'Distrato (aguardando)', distrato_realizado: 'Distrato realizado' };
+  const STATUS = { ativo: 'Ativo', aguardando_assinatura: 'Aguardando assinatura', distrato_aguardando: 'Distrato (aguardando)', distrato_realizado: 'Distrato realizado', permuta: 'Permuta' };
   // as colunas da planilha, na ordem da tabela, e o campo do banco de cada uma
   const CAMPOS = [
     { c: 'comissao', t: 'dinheiro' }, { c: 'saldo_construtora', t: 'dinheiro' }, { c: 'incc_percentual', t: 'pct' },
@@ -619,13 +649,15 @@
     const m = rota.match(/^casa\/(\d+)$/);
     if (rota === 'nova') abrirFicha(null);
     else if (m) abrirFicha(Number(m[1]));
+    else if (rota === 'distratos') mostrarDistratos();
     else { rota = 'casas'; mostrarCasas(); }
     estado.rota = rota;
     if (semHistorico) window.history.replaceState(null, '', '#' + rota); else if (rotaDaUrl() !== rota) window.location.hash = rota;
   }
   window.addEventListener('hashchange', () => { if (estado.perfil && rotaDaUrl() !== estado.rota) irPara(rotaDaUrl(), true); });
   window.addEventListener('beforeunload', (ev) => { if (estado.mudou) { ev.preventDefault(); ev.returnValue = ''; } });
-  $('navCasas').addEventListener('click', () => irPara('casas'));
+  $('navCasas').addEventListener('click', () => { if (estado.rota.indexOf('casa/') === 0 || estado.rota === 'nova' ? podeSairDaFicha() : true) irPara('casas'); });
+  $('navDistratos').addEventListener('click', () => { if (estado.rota.indexOf('casa/') === 0 || estado.rota === 'nova' ? podeSairDaFicha() : true) irPara('distratos'); });
   $('voltarLista').addEventListener('click', () => { if (podeSairDaFicha()) irPara('casas'); });
   $('btNovaCasa').addEventListener('click', () => irPara('nova'));
   function podeSairDaFicha() { return !estado.mudou || window.confirm('Há mudanças não salvas. Sair sem salvar?'); }
@@ -633,7 +665,7 @@
   /* ---- CASAS: a lista ---- */
   // (18/11) os e-mails entram na leitura: a ficha abre a partir desta lista, e sem eles salvar apagaria o e-mail.
   // Enquanto o sql/003 da Central nao roda, a coluna nao existe: le sem os e-mails e trava a gravacao deles.
-  const COLS_CASA = 'id, empreendimento, unidade, comprador, telefone, status_contrato, data_assinatura, valor_venda, financiamento_proposto, fgts_proposto, saldo_devedor_atual, gerida_no_financeiro, atualizado_em';
+  const COLS_CASA = 'id, empreendimento, unidade, comprador, telefone, status_contrato, data_assinatura, valor_venda, financiamento_proposto, fgts_proposto, saldo_devedor_atual, gerida_no_financeiro, atualizado_em, aba_origem';
   // (18/11, tarde) o mesmo para os CPFs (sql/004): sem a coluna, le sem eles e trava a gravacao deles
   estado.temEmail = true; estado.temCpf = true;
   function lerUnidades() {
@@ -654,7 +686,7 @@
   function carregarCasas() {
     return Promise.all([
       lerUnidades(),
-      sb.from('parcelas').select('unidade_id, ordem, data_vencimento, pago').order('ordem')
+      sb.from('parcelas').select('unidade_id, ordem, data_vencimento, pago, parcela_corrigida, parcela_construtora').order('ordem')
     ]).then(([u, p]) => {
       if (u.error) { avisar(mensagemDeErro(u.error), 'erro'); return; }
       if (p.error) { avisar(mensagemDeErro(p.error), 'erro'); }
@@ -662,22 +694,68 @@
       const hoje = hojeISO();
       const resumo = {};
       (p.data || []).forEach((x) => {
-        const r = resumo[x.unidade_id] || (resumo[x.unidade_id] = { total: 0, pagas: 0, atraso: 0, proxima: null });
+        const r = resumo[x.unidade_id] || (resumo[x.unidade_id] = { total: 0, pagas: 0, atraso: 0, proxima: null, pago: 0 });
         r.total++;
         const s = situacaoDaParcela(x, hoje);
-        if (s === 'paga') r.pagas++;
+        if (s === 'paga') { r.pagas++; r.pago += Number(x.parcela_corrigida != null ? x.parcela_corrigida : x.parcela_construtora) || 0; }
         if (s === 'atrasada') r.atraso++;
         if (s !== 'paga' && x.data_vencimento && (!r.proxima || x.data_vencimento < r.proxima)) r.proxima = x.data_vencimento;
       });
+      // (23/11/2026) parcela nao paga de casa com distrato ou permuta nao e atraso: so conta atraso de contrato ativo
+      const situacaoDe = {}; estado.casas.forEach((c) => { situacaoDe[c.id] = c.status_contrato; });
+      Object.keys(resumo).forEach((id) => { if (situacaoDe[id] && situacaoDe[id] !== 'ativo') resumo[id].atraso = 0; });
       estado.resumoParcelas = resumo;
       const emps = Array.from(new Set(estado.casas.map((c) => c.empreendimento))).sort();
       const sel = $('filtroEmp'), atual = sel.value;
       sel.innerHTML = '<option value="">Todos</option>' + emps.map((e) => '<option value="' + esc(e) + '"' + (e === atual ? ' selected' : '') + '>' + esc(e) + '</option>').join('');
       $('listaEmps').innerHTML = emps.map((e) => '<option value="' + esc(e) + '">').join('');
-      renderizarCasas();
+      renderizarCasas(); renderizarDistratos();
     });
   }
-  function mostrarCasas() { $('paginaCasa').hidden = true; $('paginaCasas').hidden = false; $('navCasas').classList.add('ativo'); renderizarCasas(); }
+  function marcarNav(qual) { $('navCasas').classList.toggle('ativo', qual === 'casas'); $('navDistratos').classList.toggle('ativo', qual === 'distratos'); }
+  function mostrarCasas() { $('paginaCasa').hidden = true; $('paginaDistratos').hidden = true; $('paginaCasas').hidden = false; marcarNav('casas'); renderizarCasas(); }
+  function mostrarDistratos() { $('paginaCasa').hidden = true; $('paginaCasas').hidden = true; $('paginaDistratos').hidden = false; marcarNav('distratos'); renderizarDistratos(); }
+
+  /* ---- (23/11/2026) DISTRATOS: so as casas com distrato e o que o cliente ja pagou ---- */
+  // a observacao vem do nome da aba da planilha: "CASA 26 (Distrato Realizado | Valores a Pagar)" -> "Valores a Pagar"
+  function observacaoDaAba(aba) {
+    const m = /\(([^)]*)\)?\s*$/.exec(String(aba || '')) || /^\s*(?:CASA|LOJA)\s*\d+\s*(.*)$/i.exec(String(aba || ''));
+    if (!m) return '';
+    // tira o "Distrato" / "Distrato realizado" do comeco e o separador que vem depois ("|", "-" ou o "I" que fazem de barra)
+    return m[1].replace(/^\s*distrato(\s+(realizado|formalizado))?\s*([|-]\s*|I\s+)?/i, '').replace(/\s+[|I]\s+/g, ' · ').trim();
+  }
+  function renderizarDistratos() {
+    const termo = $('buscaDistratos').value.trim().toLowerCase(), st = $('filtroDistrato').value;
+    const todos = estado.casas.filter((c) => c.status_contrato === 'distrato_realizado' || c.status_contrato === 'distrato_aguardando');
+    const lista = todos.filter((c) => (!st || c.status_contrato === st) && (!termo || [c.comprador, c.unidade].join(' ').toLowerCase().indexOf(termo) >= 0));
+    const pagoDe = (c) => (estado.resumoParcelas[c.id] || { pago: 0 }).pago;
+    $('disTotal').textContent = todos.length;
+    $('disRealizados').textContent = todos.filter((c) => c.status_contrato === 'distrato_realizado').length;
+    $('disAndamento').textContent = todos.filter((c) => c.status_contrato === 'distrato_aguardando').length;
+    $('disPago').textContent = reais(todos.reduce((s, c) => s + pagoDe(c), 0));
+    let empAnterior = null, html = '';
+    lista.forEach((c) => {
+      if (c.empreendimento !== empAnterior) { html += '<tr class="grupo-emp"><td colspan="8">' + esc(c.empreendimento) + '</td></tr>'; empAnterior = c.empreendimento; }
+      const r = estado.resumoParcelas[c.id] || { total: 0, pagas: 0, pago: 0 };
+      html += '<tr class="linha-casa" data-id="' + c.id + '" tabindex="0">'
+        + '<td><strong>' + esc(c.unidade) + '</strong></td>'
+        + '<td>' + esc(c.comprador) + '</td>'
+        + '<td><span class="selo ' + esc(c.status_contrato) + '">' + esc(c.status_contrato === 'distrato_aguardando' ? 'Em andamento' : 'Realizado') + '</span></td>'
+        + '<td>' + (c.data_assinatura ? dataBR(c.data_assinatura) : '—') + '</td>'
+        + '<td class="num">' + reais(c.valor_venda) + '</td>'
+        + '<td class="num"><strong>' + reais(r.pago) + '</strong></td>'
+        + '<td class="num">' + r.pagas + ' de ' + r.total + '</td>'
+        + '<td class="obs-planilha">' + esc(observacaoDaAba(c.aba_origem) || '—') + '</td>'
+        + '</tr>';
+    });
+    $('listaDistratos').innerHTML = html;
+    const somaVenda = lista.reduce((s, c) => s + (Number(c.valor_venda) || 0), 0), somaPago = lista.reduce((s, c) => s + pagoDe(c), 0);
+    $('totalDistratos').innerHTML = lista.length ? '<tr><td colspan="4">Total (' + lista.length + (lista.length === 1 ? ' casa' : ' casas') + ')</td><td class="num">' + reais(somaVenda) + '</td><td class="num">' + reais(somaPago) + '</td><td colspan="2"></td></tr>' : '';
+    $('distratosVazio').hidden = lista.length > 0;
+  }
+  ['buscaDistratos', 'filtroDistrato'].forEach((id) => $(id).addEventListener('input', renderizarDistratos));
+  $('listaDistratos').addEventListener('click', (ev) => { const tr = ev.target.closest('.linha-casa'); if (tr) irPara('casa/' + tr.getAttribute('data-id')); });
+  $('listaDistratos').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { const tr = ev.target.closest('.linha-casa'); if (tr) irPara('casa/' + tr.getAttribute('data-id')); } });
   function renderizarCasas() {
     const termo = $('buscaCasas').value.trim().toLowerCase(), emp = $('filtroEmp').value, st = $('filtroStatus').value;
     const lista = estado.casas.filter((c) =>
@@ -711,7 +789,7 @@
 
   /* ---- A FICHA ---- */
   function abrirFicha(id) {
-    $('paginaCasas').hidden = true; $('paginaCasa').hidden = false; $('navCasas').classList.remove('ativo');
+    $('paginaCasas').hidden = true; $('paginaDistratos').hidden = true; $('paginaCasa').hidden = false; marcarNav('');
     estado.casaId = id; estado.mudou = false; estado.linhas = [];
     if (!id) {
       estado.casa = { empreendimento: '', unidade: '', comprador: '', telefone: null, email_comprador: null, email_conjuge: null, cpf_comprador: null, cpf_conjuge: null, status_contrato: 'ativo', data_assinatura: null, valor_venda: null, financiamento_proposto: null, fgts_proposto: null, saldo_devedor_atual: null };
