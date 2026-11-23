@@ -199,6 +199,7 @@
   .parcelas td.c-acoes { width: 44px; text-align: center; }
   .parcelas tr.paga td { background: rgba(46, 125, 50, .035); }
   .parcelas tr.atrasada td.c-data input { color: var(--accent); font-weight: 700; }
+  .parcelas tr.comissao td { opacity: .5; }
   .pago-caixa { appearance: none; width: 20px; height: 20px; border: 1.5px solid var(--border); border-radius: 6px; background: var(--white); cursor: pointer; position: relative; vertical-align: middle; }
   .pago-caixa:checked { background: var(--verde); border-color: var(--verde); }
   .pago-caixa:checked::after { content: ''; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px; border: solid var(--white); border-width: 0 2px 2px 0; transform: rotate(45deg); }
@@ -610,6 +611,8 @@
   }
   function situacaoDaParcela(p, hoje) {
     if (p.pago) return 'paga';
+    // (23/11/2026) linha do periodo da comissao do corretor: sem valor da construtora, o cliente nao deve nada a ela
+    if (!(Number(p.parcela_construtora) > 0) && !(Number(p.parcela_corrigida) > 0)) return 'comissao';
     if (p.data_vencimento && p.data_vencimento < hoje) return 'atrasada';
     return 'aberta';
   }
@@ -846,10 +849,22 @@
       return r;
     });
   }
+  // (23/11/2026) o Supabase entrega no maximo 1000 linhas por consulta: le de 1000 em 1000 ate acabar
+  function lerTodasParcelas() {
+    const PASSO = 1000, todas = [];
+    const pagina = (de) => sb.from('parcelas').select('unidade_id, ordem, data_vencimento, pago, parcela_corrigida, parcela_construtora')
+      .order('unidade_id').order('ordem').range(de, de + PASSO - 1).then((r) => {
+        if (r.error) return { data: todas, error: r.error };
+        const lote = r.data || [];
+        for (const x of lote) todas.push(x);
+        return lote.length === PASSO ? pagina(de + PASSO) : { data: todas, error: null };
+      });
+    return pagina(0);
+  }
   function carregarCasas() {
     return Promise.all([
       lerUnidades(),
-      sb.from('parcelas').select('unidade_id, ordem, data_vencimento, pago, parcela_corrigida, parcela_construtora').order('ordem')
+      lerTodasParcelas()
     ]).then(([u, p]) => {
       if (u.error) { avisar(mensagemDeErro(u.error), 'erro'); return; }
       if (p.error) { avisar(mensagemDeErro(p.error), 'erro'); }
@@ -858,8 +873,9 @@
       const resumo = {};
       (p.data || []).forEach((x) => {
         const r = resumo[x.unidade_id] || (resumo[x.unidade_id] = { total: 0, pagas: 0, atraso: 0, proxima: null, pago: 0 });
-        r.total++;
         const s = situacaoDaParcela(x, hoje);
+        if (s === 'comissao') return;   // linha da comissao do corretor nao e parcela do cliente
+        r.total++;
         if (s === 'paga') { r.pagas++; r.pago += Number(x.parcela_corrigida != null ? x.parcela_corrigida : x.parcela_construtora) || 0; }
         if (s === 'atrasada') r.atraso++;
         if (s !== 'paga' && x.data_vencimento && (!r.proxima || x.data_vencimento < r.proxima)) r.proxima = x.data_vencimento;
@@ -1051,7 +1067,7 @@
   function atualizarEstado() {
     const hoje = hojeISO();
     let pagas = 0, abertas = 0, atraso = 0, soma = 0;
-    estado.linhas.forEach((l) => { const s = situacaoDaParcela(l, hoje); if (s === 'paga') pagas++; else if (s === 'atrasada') atraso++; else abertas++; soma += Number(l.parcela_corrigida) || 0; });
+    estado.linhas.forEach((l) => { const s = situacaoDaParcela(l, hoje); if (s === 'paga') pagas++; else if (s === 'atrasada') atraso++; else if (s === 'aberta') abertas++; soma += Number(l.parcela_corrigida) || 0; });
     $('contaParcelas').textContent = estado.linhas.length + (estado.linhas.length === 1 ? ' parcela' : ' parcelas');
     $('totPagas').textContent = pagas; $('totAbertas').textContent = abertas; $('totAtraso').textContent = atraso; $('totCorrigidas').textContent = 'R$ ' + fmt.format(soma);
     $('estadoSalvar').innerHTML = estado.mudou ? '<strong>Mudanças não salvas.</strong> O cliente só vê depois de salvar.' : (estado.casaId ? 'Tudo salvo. O cliente vê isto na Central.' : 'Preencha a casa e salve.');
@@ -1090,7 +1106,7 @@
     if (campo === 'pago') { l.pago = el.checked; el.closest('tr').className = situacaoDaParcela(l, hojeISO()); }
     else if (campo === 'data_vencimento') { l.data_vencimento = dataISO(el.value); el.closest('tr').className = situacaoDaParcela(l, hojeISO()); }
     else if (campo === 'tipo_parcela') l.tipo_parcela = el.value.trim().toUpperCase();
-    else l[campo] = numero(el.value);
+    else { l[campo] = numero(el.value); if (campo === 'parcela_construtora' || campo === 'parcela_corrigida') el.closest('tr').className = situacaoDaParcela(l, hojeISO()); }
     marcarMudou();
   });
   $('linhasParcelas').addEventListener('click', (ev) => {
