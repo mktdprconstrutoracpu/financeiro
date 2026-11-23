@@ -102,7 +102,28 @@
   .topo-nav { display: flex; gap: 4px; margin-left: 14px; }
   .topo-nav button { appearance: none; border: 0; background: none; padding: 10px 14px; border-radius: 999px; font-weight: 600; color: var(--text-light); cursor: pointer; }
   .topo-nav button.ativo { background: var(--primary); color: var(--white); }
-  .topo-usuario { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .topo-usuario { display: flex; align-items: center; gap: 14px; }
+  /* (23/11/2026) sino dos avisos. O painel e "fixed", mas o .topo tem backdrop-filter, entao ele se
+     posiciona pelo topo (que ocupa a largura toda no alto da tela) e nao pela janela: por isso top/right. */
+  .sino { margin-left: auto; position: relative; appearance: none; width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--border); background: var(--white); color: var(--primary); display: grid; place-items: center; cursor: pointer; flex: 0 0 auto; }
+  .sino svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .sino:hover { border-color: var(--primary); }
+  .sino-conta { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--white); font-size: 11px; font-weight: 800; display: grid; place-items: center; }
+  .sino[hidden], .sino-conta[hidden], .avisos[hidden] { display: none; }
+  .sino[hidden] ~ .topo-usuario { margin-left: auto; }
+  .avisos { position: fixed; top: calc(100% + 6px); right: 16px; width: min(400px, calc(100vw - 24px)); max-height: min(70vh, 560px); overflow-y: auto; background: var(--white); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 24px 60px rgba(18, 19, 22, .18); z-index: 60; }
+  .avisos-topo { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 14px 16px; background: var(--white); border-bottom: 1px solid var(--border); }
+  .avisos-topo b { font-family: var(--display); font-size: 15px; color: var(--primary); }
+  .avisos-lista { list-style: none; margin: 0; padding: 6px; display: grid; gap: 2px; }
+  .avisos-lista li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding: 10px; border-radius: 12px; cursor: pointer; }
+  .avisos-lista li:hover, .avisos-lista li:focus-visible { background: var(--fundo); }
+  .avisos-lista li.novo { background: rgba(225, 6, 0, .05); }
+  .avisos-lista .inicial { width: 34px; height: 34px; border-radius: 50%; background: var(--primary); color: var(--white); display: grid; place-items: center; font-weight: 800; font-size: 13px; }
+  .avisos-lista li.novo .inicial { background: var(--accent); }
+  .avisos-lista p { margin: 0; font-size: 13.5px; line-height: 1.4; color: var(--text); }
+  .avisos-lista p b { color: var(--primary); }
+  .avisos-lista small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--text-light); }
+  .avisos-lista .vazio-aviso { display: block; padding: 18px; text-align: center; color: var(--text-light); cursor: default; }
   .topo-usuario strong { font-size: 13px; color: var(--primary); }
   .topo-usuario span { display: block; font-size: 11px; color: var(--text-light); }
   .conteudo { max-width: 1320px; margin: 0 auto; padding: 32px 28px 80px; }
@@ -246,6 +267,14 @@
     .parcelas-rolagem { margin: 0 -18px; padding: 0 18px; }
     .barra-salvar { border-radius: 14px; flex-wrap: wrap; }
   }
+  /* (23/11/2026) com o sino e a aba Distratos o topo nao cabe no celular: some o nome e aperta os espacos */
+  @media (max-width: 560px) {
+    .topo-dentro { gap: 8px; padding: 10px 12px; }
+    .topo-usuario > div { display: none; }
+    .topo-nav button { padding: 8px 10px; }
+    .sino { width: 38px; height: 38px; }
+    .avisos { right: 8px; width: calc(100vw - 16px); }
+  }
 </style>
 </head>
 <body>
@@ -304,6 +333,15 @@
         <button type="button" data-rota="casas" id="navCasas" class="ativo">Casas</button>
         <button type="button" data-rota="distratos" id="navDistratos">Distratos</button>
       </nav>
+      <!-- (23/11/2026) avisos: o que os outros da equipe mudaram (sql/006_atividades.sql) -->
+      <button type="button" class="sino" id="btSino" aria-label="Avisos da equipe" aria-expanded="false" aria-controls="painelAvisos" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+        <span class="sino-conta" id="sinoConta" hidden>0</span>
+      </button>
+      <div class="avisos" id="painelAvisos" role="dialog" aria-label="Avisos da equipe" hidden>
+        <div class="avisos-topo"><b>Avisos da equipe</b><button type="button" class="link" id="btLerTudo">Marcar todos como lidos</button></div>
+        <ul class="avisos-lista" id="listaAvisos"></ul>
+      </div>
       <div class="topo-usuario">
         <div><strong id="usuarioNome"></strong><span id="usuarioEmail"></span></div>
         <button type="button" class="bt leve mini" id="sair">Sair</button>
@@ -599,8 +637,132 @@
       $('usuarioEmail').textContent = p.email || '';
       mostrarTela('app');
       carregarCasas().then(() => irPara(rotaDaUrl(), true));
+      iniciarAvisos(sessao.user.id);
     });
   }
+
+  /* ---- (23/11/2026) AVISOS: o que os outros da equipe mudaram (sql/006_atividades.sql) ----
+     O banco registra cada mudanca feita por alguem logado; aqui aparecem as dos outros. Novidade chega na
+     hora pelo Realtime do Supabase (e, de reserva, a cada 45 s), com aviso no pe da tela e notificacao do
+     navegador. "Lido" fica no banco (fin_leituras), vale em qualquer aparelho. */
+  const avisos = { meu: null, itens: [], vistoAte: null, ligado: false, canal: null, relogio: null, ultimoId: 0 };
+  const FRASE = {
+    casa_nova: (n, d) => 'cadastrou a casa ' + n + (d ? ' (' + d + ')' : ''),
+    casa_excluida: (n, d) => 'excluiu a casa ' + n + (d ? ' (' + d + ')' : ''),
+    situacao: (n, d) => 'mudou a situação da ' + n + ': ' + String(d || '').replace(' -> ', ' para '),
+    ficha: (n, d) => 'alterou a ficha da ' + n + (d ? ': ' + d : ''),
+    parcela_paga: (n, d) => 'marcou como paga a ' + d + ' da ' + n,
+    parcela_desmarcada: (n, d) => 'desmarcou o pagamento da ' + d + ' da ' + n,
+    boleto_anexado: (n, d) => 'anexou o boleto da ' + d + ' da ' + n,
+    boleto_retirado: (n, d) => 'tirou o boleto da ' + d + ' da ' + n,
+    parcela_nova: (n, d) => 'criou a ' + d + ' da ' + n,
+    parcela_excluida: (n, d) => 'excluiu a ' + d + ' da ' + n,
+    parcela_alterada: (n, d) => 'alterou a ' + d + ' da ' + n
+  };
+  const CURTO = { casa_nova: ['casa cadastrada', 'casas cadastradas'], casa_excluida: ['casa excluída', 'casas excluídas'], situacao: ['situação alterada', 'situações alteradas'], ficha: ['ficha alterada', 'fichas alteradas'], parcela_paga: ['parcela paga', 'parcelas pagas'], parcela_desmarcada: ['pagamento desmarcado', 'pagamentos desmarcados'], boleto_anexado: ['boleto anexado', 'boletos anexados'], boleto_retirado: ['boleto retirado', 'boletos retirados'], parcela_nova: ['parcela criada', 'parcelas criadas'], parcela_excluida: ['parcela excluída', 'parcelas excluídas'], parcela_alterada: ['parcela alterada', 'parcelas alteradas'] };
+  const primeiroNome = (n) => String(n || 'Alguém').trim().split(/\s+/)[0];
+  function quandoAviso(iso) {
+    const s = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (s < 60) return 'agora';
+    if (s < 3600) return 'há ' + Math.floor(s / 60) + ' min';
+    if (s < 86400) return 'há ' + Math.floor(s / 3600) + ' h';
+    return horaBR(iso);
+  }
+  // mudancas em sequencia da mesma pessoa na mesma casa (ate 10 min entre uma e outra) viram um item so
+  function agrupar(lista) {
+    const grupos = [];
+    lista.forEach((a) => {
+      const g = grupos[grupos.length - 1];
+      if (g && g.user_id === a.user_id && g.unidade_id === a.unidade_id && (new Date(g.fim) - new Date(a.criado_em)) <= 600000) { g.itens.push(a); g.inicio = a.criado_em; }
+      else grupos.push({ user_id: a.user_id, nome: a.nome, unidade_id: a.unidade_id, unidade: a.unidade, fim: a.criado_em, inicio: a.criado_em, itens: [a] });
+    });
+    return grupos;
+  }
+  function fraseDo(g) {
+    const casa = g.unidade || 'casa';
+    if (g.itens.length === 1) { const a = g.itens[0]; return (FRASE[a.tipo] || ((n) => 'alterou a ' + n))(casa, a.detalhe); }
+    const conta = {}; g.itens.slice().reverse().forEach((a) => { conta[a.tipo] = (conta[a.tipo] || 0) + 1; });   // na ordem em que aconteceu
+    return 'fez ' + g.itens.length + ' mudanças na ' + casa + ': ' + Object.keys(conta).map((t) => conta[t] + ' ' + (CURTO[t] ? CURTO[t][conta[t] === 1 ? 0 : 1] : t)).join(', ');
+  }
+  function naoLidos() { return avisos.itens.filter((a) => !avisos.vistoAte || a.criado_em > avisos.vistoAte); }
+  function desenharAvisos() {
+    const n = naoLidos().length;
+    $('sinoConta').hidden = n === 0;
+    $('sinoConta').textContent = n > 99 ? '99+' : String(n);
+    $('btSino').setAttribute('aria-label', n ? 'Avisos da equipe: ' + n + (n === 1 ? ' novo' : ' novos') : 'Avisos da equipe');
+    const grupos = agrupar(avisos.itens).slice(0, 40);
+    $('listaAvisos').innerHTML = grupos.length ? grupos.map((g, i) => {
+      const novo = !avisos.vistoAte || g.fim > avisos.vistoAte;
+      const existe = g.unidade_id && estado.casas.some((c) => c.id === g.unidade_id);
+      return '<li tabindex="0" data-i="' + i + '"' + (existe ? ' data-casa="' + g.unidade_id + '"' : '') + (novo ? ' class="novo"' : '') + '><span class="inicial">' + esc(primeiroNome(g.nome).charAt(0).toUpperCase()) + '</span><div><p><b>' + esc(primeiroNome(g.nome)) + '</b> ' + esc(fraseDo(g)) + '</p><small>' + esc(quandoAviso(g.fim)) + '</small></div></li>';
+    }).join('') : '<li class="vazio-aviso">Nenhuma mudança da equipe ainda.</li>';
+  }
+  function carregarAvisos(avisarNovos) {
+    return Promise.all([
+      sb.from('fin_atividades').select('id, criado_em, user_id, nome, unidade_id, unidade, tipo, detalhe').order('criado_em', { ascending: false }).limit(300),
+      sb.from('fin_leituras').select('visto_ate').eq('user_id', avisos.meu).maybeSingle()
+    ]).then(([a, l]) => {
+      if (a.error) { if (!avisos.ligado) $('btSino').hidden = true; return; }   // sql/006 ainda nao rodado: sem sino
+      $('btSino').hidden = false; avisos.ligado = true;
+      const dosOutros = (a.data || []).filter((x) => x.user_id !== avisos.meu);
+      if (l && !l.error && l.data) avisos.vistoAte = l.data.visto_ate;
+      const novos = dosOutros.filter((x) => x.id > avisos.ultimoId && (!avisos.vistoAte || x.criado_em > avisos.vistoAte));
+      if (avisarNovos && avisos.ultimoId && novos.length) mostrarNovidade(novos);
+      avisos.ultimoId = Math.max(avisos.ultimoId, ...dosOutros.map((x) => x.id), 0);
+      avisos.itens = dosOutros;
+      desenharAvisos();
+    });
+  }
+  function mostrarNovidade(novos) {
+    const g = agrupar(novos)[0];
+    const texto = primeiroNome(g.nome) + ' ' + fraseDo(g) + (novos.length > g.itens.length ? ' (e mais ' + (novos.length - g.itens.length) + ')' : '');
+    avisar(texto, 'info');
+    try {
+      if ('Notification' in window && Notification.permission === 'granted' && document.hidden) new Notification('Financeiro DPR', { body: texto, tag: 'fin-avisos' });
+    } catch (e) { /* sem notificacao do navegador: fica o sino */ }
+    // a lista de casas pode ter mudado: recarrega por tras, sem tirar ninguem da ficha
+    if (estado.rota === 'casas' || estado.rota === 'distratos') carregarCasas();
+  }
+  function marcarLidos() {
+    const ate = avisos.itens.length ? avisos.itens[0].criado_em : new Date().toISOString();
+    if (avisos.vistoAte && ate <= avisos.vistoAte) return;
+    avisos.vistoAte = ate; desenharAvisos();
+    sb.from('fin_leituras').upsert({ user_id: avisos.meu, visto_ate: ate }, { onConflict: 'user_id' }).then(() => {});
+  }
+  function abrirAvisos(abrir) {
+    $('painelAvisos').hidden = !abrir;
+    $('btSino').setAttribute('aria-expanded', String(abrir));
+    if (abrir) {
+      desenharAvisos();
+      try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (e) { /* segue */ }
+      setTimeout(marcarLidos, 1500);   // da tempo de ver o que e novo antes de apagar o destaque
+    }
+  }
+  function iniciarAvisos(uid) {
+    if (avisos.meu === uid) return;
+    avisos.meu = uid; avisos.itens = []; avisos.vistoAte = null; avisos.ultimoId = 0;
+    carregarAvisos(false);
+    clearInterval(avisos.relogio);
+    avisos.relogio = setInterval(() => carregarAvisos(true), 45000);
+    try {
+      if (avisos.canal) sb.removeChannel(avisos.canal);
+      if (typeof sb.channel === 'function') {
+        avisos.canal = sb.channel('fin-avisos').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'fin_atividades' }, (m) => {
+          if (m && m.new && m.new.user_id !== avisos.meu) carregarAvisos(true);
+        }).subscribe();
+      }
+    } catch (e) { /* sem Realtime: fica a busca a cada 45 s */ }
+  }
+  $('btSino').addEventListener('click', (ev) => { ev.stopPropagation(); abrirAvisos($('painelAvisos').hidden); });
+  $('btLerTudo').addEventListener('click', (ev) => { ev.stopPropagation(); marcarLidos(); });
+  $('painelAvisos').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const li = ev.target.closest('li[data-casa]');
+    if (li && (estado.rota.indexOf('casa/') !== 0 && estado.rota !== 'nova' ? true : podeSairDaFicha())) { abrirAvisos(false); irPara('casa/' + li.getAttribute('data-casa')); }
+  });
+  $('painelAvisos').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { const li = ev.target.closest('li[data-casa]'); if (li) li.click(); } });
+  document.addEventListener('click', () => { if (!$('painelAvisos').hidden) abrirAvisos(false); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !$('painelAvisos').hidden) { abrirAvisos(false); $('btSino').focus(); } });
   sb.auth.onAuthStateChange((evento, sessao) => {
     if (evento === 'PASSWORD_RECOVERY') { avisar('Defina a senha nova pela Central do Cliente ou pelo painel de obras.', 'info'); }
     aoMudarSessao(sessao);
@@ -635,6 +797,7 @@
   function sair() {
     if (estado.mudou && !window.confirm('Há mudanças não salvas nesta casa. Sair mesmo assim?')) return;
     estado.perfil = null; estado.mudou = false; estado.casas = [];
+    avisos.meu = null; clearInterval(avisos.relogio); $('btSino').hidden = true; abrirAvisos(false);
     if (window.location.hash) window.history.replaceState(null, '', window.location.pathname);
     sessaoTratada = undefined;
     sb.auth.signOut().then(() => aoMudarSessao(null));
